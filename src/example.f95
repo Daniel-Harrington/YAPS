@@ -6,7 +6,7 @@ subroutine gravity(a,  b, c)
     c = b**2 
     
 end subroutine gravity
-
+!hello
 program example
 real::N
 N = 1e6
