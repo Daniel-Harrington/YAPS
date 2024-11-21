@@ -1,4 +1,57 @@
 
+
+
+subroutine compute_accelerations(density_accel_grid,  nx,ny,nz,particles,N)
+    use cudafor
+    implicit none
+    
+    integer,intent(in)::  nx,ny,nz,N
+    
+        ! I can operate in place on the density grid since it needs to be
+        ! recomputed anyways, this way avoids creating another huge 3d array of grid_dim^3 cells
+        ! atleast on the cpu
+        real, Dimension( nx,ny,nz) :: density_accel_grid
+        
+        real, Dimension(9,N)::particles
+
+
+        ! ##################################
+        ! Cuda Variables for plan process
+        ! ##################################
+        !Plan identifier and error
+        integer::cufftHandle,err
+        ! Allocate memory for the device (gpu)
+        real, Dimension( nx,ny,nz), device:: gpu_accel_grid
+        
+        allocate(gpu_accel_grid)
+        
+
+    ! 3D R2C Fourier Transform plan setup
+    err = cufftPlan3d(cufftHandle, nx,ny,nz,CUFFT_R2C)
+
+    if (err .not. CUFFT_SUCCESS)then
+        print*, "Error creating GPU Plan :", err
+        stop
+    endif
+    ! 3D R2C Fourier Transform execution
+    err = cufftExecR2C(cufftHandle,gpu_accel_grid,gpu_accel_grid)
+
+    if (err .not. CUFFT_SUCCESS)then
+        print*, "Error creating GPU Plan :", err
+        stop
+    endif
+    !Compute Gravitational Accelerations in Fourier Space
+
+
+    !Inverse 3D C2R Fourier Transform on the Gravity Cube
+
+    ! Normalize Gravity Cube (divide by N/)
+
+    
+end subroutine compute_accelerations
+
+
+
 subroutine initiate_particles(particle_arr,N,Ra)
     !
     !   Iniatiates the particle positions to form a spherical cloud
