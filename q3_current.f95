@@ -51,20 +51,11 @@ subroutine initiate_particles(particle_arr,N,Ra)
 
     end do 
 
-            ! Open a file with a unique unit number
-    
-    open(unit=10, file='particledata.csv', status="replace", action="write")
-
-    ! Write header
-    write(10, '(A)') "x,y,z,v_x,v_y,v_z,a_x,a_y,a_z"
-
-    ! Write data
-    do i = 1, N
-        write(10, '(9(F12.6, ","))') particle_arr(:, i)
-    end do
-
-    ! Close the file
+    !Write data to binary 
+    open (unit=10, file='particledata.bin', access='stream', form='unformatted', status='replace', action='write')
+    write(10) particle_arr
     close(10)
+
 end subroutine initiate_particles
 
 subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
@@ -142,22 +133,10 @@ subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
     
     end do
 
-    open(unit = 10, file='densityfield.csv', status="replace", action="write")
-
-    write(10, '(A)') "x,y,z,density"
-
-    do k = 1, nz
-        z = (k - 1.0) * dz
-        do j = 1, ny
-            y = (j - 1.0) * dy
-            do i = 1, nx
-                x = (i - 1.0) * dx
-                write(10, '(F8.3, ",", F8.3, ",", F8.3, ",", F10.5)') x, y, z, density(i, j, k)
-            end do
-        end do
-    end do
-
-    close(10)
+    !write density feild t binary 
+    open(unit=20,file='densityfield.bin',access='stream', form='unformatted', status='replace', action='write')
+    write(10) density
+    close(20)
 
 end subroutine particle_to_grid
  
