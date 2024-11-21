@@ -65,6 +65,8 @@ subroutine compute_accelerations(density_accel_grid,nx,ny,nz,particles,N)
     ! Allocate input and output arrays on the device memory (gpu)
     real, Dimension(:,:,:), allocatable, device :: gpu_accel_grid_r
     allocate(gpu_accel_grid_r(nx,ny,nz))
+
+    gpu_accel_grid_r = density_accel_grid ! transfer from host to device
     
     complex, Dimension(:,:,:), allocatable,device:: gpu_accel_grid_c
 
