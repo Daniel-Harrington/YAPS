@@ -122,7 +122,7 @@ subroutine check_energy(density_accel_grid,nx,ny,nz,particles,N,smbh_m,E)
     KE = 0.0
     do k_x=0,nx
         do k_y=0,ny
-            do k_z=0,nx/2
+            do k_z=0,nx/2 + 1
                 
 
                 ! Splitting positive and negative frequencies for x-y equivalents
@@ -308,7 +308,7 @@ subroutine compute_accelerations(density_accel_grid,nx,ny,nz,particles,N)
 
     do k_x=0,nx
         do k_y=0,ny
-            do k_z=0,nx/2
+            do k_z=0,nx/2 + 1
                 
 
                 ! Splitting positive and negative frequencies for x-y equivalents
