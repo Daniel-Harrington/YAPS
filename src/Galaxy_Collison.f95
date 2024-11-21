@@ -1,15 +1,210 @@
 
+subroutine check_energy(density_accel_grid,nx,ny,nz,particles,N,smbh_m,E)
+    !###########################################################
+    ! Instructions:
+    !      This function is NON Desctructive, ie not operating
+    !      in-place on the density grid, call it after the recompute of the
+    !      particle densities and before the integration step
+    !      
+    !      nx,nz,ny are grid dimensions
+    !       
+    !      pass in the supermassive black holes mass
+    !      into smbh_m
+    !
+    !       density_accel_grid : real(nx,ny,nz)
+    !            nx,ny,nz      : int,int, N
+    !           particles      : real(9,N)
+    !           smbh_m         : real
+    !               N          : int
+    !               E          : real
+    !
+     !##########################################################
+    use cudafor
+    use cfft
+    implicit none
+    
+    !########################
+    !   Host Initializations
+    !#########################
+    
+    integer,intent(in)::  nx,ny,nz,N
+    ! I can operate in place on the density grid since it needs to be
+    ! recomputed anyways, this way avoids creating another huge 3d array of grid_dim^3 cells
+    ! atleast on the cpu
+    real, Dimension( nx,ny,nz) :: density_accel_grid
+    
+    real, Dimension(9,N)::particles
+    real, Dimension(3):: v_i
 
+    ! Energy Calculation 
+    real::U,E,KE
+    integer::V
+
+     ! Constants
+
+    real :: G = 1 ! Natural Units
+    real,parameter:: pi = atan(1.0)*4 
+    real:: factor,constants
+    real::m,smbh_m
+   
+
+    ! Iteration
+    integer::i
+    integer::k_x,k_y,k_z
+    complex::k1,k2,k3
+    real::K, p_mag
+
+    ! Cuda Variables for plan process
+    !cufftHandle plan identifier and error
+    integer::status,plan
+
+    ! Wave number stuff
+
+    real::del_kx,del_ky,del_kz
+
+    !###################################
+    !   Device Initialization
+    !###################################
+    real, Dimension(:,:,:), allocatable, device :: gpu_accel_grid_r
+    complex, Dimension(:,:,:), allocatable,device:: gpu_accel_grid_c
+
+
+
+    !#######################################
+    !   Forward FFT
+    !#######################################
+    
+    
+
+
+    ! Allocate input and output arrays on the device memory (gpu)
+   
+    allocate(gpu_accel_grid_r(nx,ny,nz))
+
+    gpu_accel_grid_r = density_accel_grid ! transfer from host to device
+    
+
+    ! https://docs.nvidia.com/cuda/cufft/index.html#multidimensional-transforms
+    allocate(gpu_accel_grid_c(nx,ny,nz/2 +1))
+
+    ! 3D R2C Fourier Transform plan setup
+    status = cufftPlan3d(plan, nx,ny,nz,CUFFT_R2C)
+
+    if (status .ne. CUFFT_SUCCESS)then
+        print*, "Error creating R2C GPU Plan :", status
+        stop
+    endif
+    ! 3D R2C Fourier Transform execution
+    status = cufftExecR2C(plan,gpu_accel_grid_r,gpu_accel_grid_c)
+
+    if (status .ne. CUFFT_SUCCESS)then
+        print*, "Error executing R2C GPU Plan :", status
+        stop
+    endif
+
+    !######################################################
+    !Compute Gravitational Potential in Fourier Space
+    !#################################################
+
+ 
+    ! get Volume of cube
+    V = nx*ny*nz
+    
+    ! From dividing a full 2pi wave over the length of each cell
+    ! we get these deltas https://en.wikipedia.org/wiki/Wave_vector#Definition
+    del_kx =  2*pi/nx
+    del_ky = 2*pi/ny
+    del_kz = 2*pi/nz
+
+    ! Reset U,KE
+
+    U=0.0
+    KE = 0.0
+    do k_x=0,nx
+        do k_y=0,ny
+            do k_z=0,nx/2
+                
+
+                ! Splitting positive and negative frequencies for x-y equivalents
+                if (k_x < nx/2) then
+                    k1 = del_kx*k_x
+                else
+                    k1 = del_kx*k_x - nx
+                endif
+                if (k_y < ny/2) then
+                    k2 = del_ky*k_y
+                else
+                    k2 = del_ky*k_y - ny
+                endif
+            
+                ! z freq always > 0
+
+                k3 = del_kz*k_z
+
+
+                !k * p(k) *(-4)*pi*G/|K|^2
+
+                K = 1/(abs(k1)**2 + abs(k2)**2 + abs(k3)**2)
+
+                if (k_x > 0) then
+
+                    p_mag = (abs(gpu_accel_grid_c(k_x))**2 + abs(gpu_accel_grid_c(k_y))**2 + abs(gpu_accel_grid_c(k_z))**2)
+                    U = U + p_mag*K
+                end if
+    
+            end do
+        end do
+    end do
+
+    !Destroy Plan
+    status = cufftDestroy(plan)
+    if (status /= CUFFT_SUCCESS) then
+        print *, 'Error destroying cuFFT plan'
+        stop
+    end if
+
+    U = (2*pi*G/V)*U
+
+    m = 1/N
+
+
+    ! Add KE for Supermassive seperately 
+    ! assuming it is particle 1 (index 0)
+
+    ! get velocities
+    v_i = particles(4:6,0)
+    KE = KE + smbh_m* 0.5* sum(v_i**2)
+
+
+    ! get KE 
+    do i=1,N
+            ! get velocities
+
+        v_i = particles(4:6,0)
+
+        KE = KE + m* 0.5* sum(v_i**2)
+    end do
+    
+    ! combine energies
+    E = U + KE
+
+    
+end subroutine check_energy
 
 subroutine compute_accelerations(density_accel_grid,nx,ny,nz,particles,N)
     !###########################################################
     ! Instructions:
-    !      Pass in a densitry grid to fill density_accel_grid
+    !      Pass in a density grid to fill density_accel_grid
     !      that will be modified inplace to become accelerations
     !      in a cubic cell region then mapped onto the particles 
     !      corresponding to that region
     !      
     !      nx,nz,ny are grid dimensions
+    !
+    !       density_accel_grid : real(nx,ny,nz)
+    !            nx,ny,nz      : int,int, N
+    !           particles      : real(9,N)
+    !               N          : int
     !
      !##########################################################
 
@@ -23,7 +218,6 @@ subroutine compute_accelerations(density_accel_grid,nx,ny,nz,particles,N)
     !###########################
     
     integer,intent(in)::  nx,ny,nz,N
-    
     ! I can operate in place on the density grid since it needs to be
     ! recomputed anyways, this way avoids creating another huge 3d array of grid_dim^3 cells
     ! atleast on the cpu
@@ -37,11 +231,17 @@ subroutine compute_accelerations(density_accel_grid,nx,ny,nz,particles,N)
     real,parameter:: pi = atan(1.0)*4 
     real:: factor,constants
 
+   
+
     ! Iteration
-    integer::d1,d2,d3
     integer::k_x,k_y,k_z
     complex::k1,k2,k3
-    real::K
+    real::K, p_mag
+
+    ! Cuda Variables for plan process
+    !cufftHandle plan identifier and error
+    integer::status,plan
+
     ! Wave number stuff
 
     ! From dividing a full 2pi wave over the length of each cell
@@ -49,26 +249,26 @@ subroutine compute_accelerations(density_accel_grid,nx,ny,nz,particles,N)
 
     real::del_kx,del_ky,del_kz
     
-    del_kx =  2*pi/nx
-    del_ky = 2*pi/ny
-    del_kz = 2*pi/nz
+    
+    !########################
+    !   Device Initializations
+    !#########################
+    real, Dimension(:,:,:), allocatable, device :: gpu_accel_grid_r
+    complex, Dimension(:,:,:), allocatable,device:: gpu_accel_grid_c
+
 
     !#######################################
     !   Forward FFT
     !#######################################
-
-    ! Cuda Variables for plan process
-    !cufftHandle plan identifier and error
-    integer::status,plan
+    
+    
 
 
     ! Allocate input and output arrays on the device memory (gpu)
-    real, Dimension(:,:,:), allocatable, device :: gpu_accel_grid_r
     allocate(gpu_accel_grid_r(nx,ny,nz))
 
     gpu_accel_grid_r = density_accel_grid ! transfer from host to device
     
-    complex, Dimension(:,:,:), allocatable,device:: gpu_accel_grid_c
 
     ! https://docs.nvidia.com/cuda/cufft/index.html#multidimensional-transforms
     allocate(gpu_accel_grid_c(nx,ny,nz/2 +1))
@@ -100,6 +300,12 @@ subroutine compute_accelerations(density_accel_grid,nx,ny,nz,particles,N)
     
 
     constants =  -4*pi*G
+    ! From dividing a full 2pi wave over the length of each cell
+    ! we get these deltas https://en.wikipedia.org/wiki/Wave_vector#Definition
+    del_kx =  2*pi/nx
+    del_ky = 2*pi/ny
+    del_kz = 2*pi/nz
+
     do k_x=0,nx
         do k_y=0,ny
             do k_z=0,nx/2
@@ -116,7 +322,7 @@ subroutine compute_accelerations(density_accel_grid,nx,ny,nz,particles,N)
                 else
                     k2 = del_ky*k_y - ny
                 endif
-               
+                
                 ! z freq always > 0
 
                 k3 = del_kz*k_z
@@ -134,8 +340,7 @@ subroutine compute_accelerations(density_accel_grid,nx,ny,nz,particles,N)
             end do
         end do
     end do
-
-
+    
 
     !#######################################
     !   Inverse FFT
@@ -412,18 +617,23 @@ program nbody_sim
     dy = 1.0/(ny-1)
     dz = 1.0/(nz-1)
 
+    smbh_m = 1 ! just set to whatever it is
     animate = .true.
     checkpoint = 10 !s
-
     
     call initiate_particles(particles,N,1)
+
+    ! initial E_0
+    call check_energy(density,nx,ny,nz,particles,N,smbh_m,E_0)
 
 
     ! These 2 will go inside a do loop until end condition
     call particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
-    
+    ! add an if for however many steps 
+    call check_energy(density,nx,ny,nz,particles,N,smbh_m,E)
+
     call integration_step(density, nx, ny, nz, particles, N, dt)
-    ! need a step to monitor energy
+
     ! need a step to write out
  
 end program nbody_sim 
