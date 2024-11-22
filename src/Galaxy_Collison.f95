@@ -1,9 +1,10 @@
-
+!#########################################
+!Compile with
+!    pgf95 -mp -Mcuda=fastmath,cc35,cc50,cc60,fma,unroll,flushz,lineinfo -ta=nvidia -tp=haswell -fast -O2 -Minfo=all -mcmodel=medium Galaxy_Collison.f95 -L/usr/local/cuda-9.2/lib64 -lcufft -lcupti
+!
+!#########################################
 !_____________________________________________________________________________
 ! modules
-!
-! pgf95 -Mcuda -ta=nvidia,cc50,time -fast -O2 -Minfo=par -c cufft_module.f95
-
 !
 ! Define the interface to the NVIDIA CUFFT routines
 !
@@ -151,7 +152,7 @@ subroutine check_energy(density_grid,nx,ny,nz,particles,N,smbh_m,E)
     ! Wave number stuff
 
     real::del_kx,del_ky,del_kz
-    complex:: p_term
+
 
     !###################################
     !   Device Initialization
@@ -183,7 +184,7 @@ subroutine check_energy(density_grid,nx,ny,nz,particles,N,smbh_m,E)
     call cufftPlan3d(plan, nx,ny,nz,CUFFT_R2C)
 
     ! 3D R2C Fourier Transform execution
-    call cufftExecC2C(plan,density_grid_r_d,density_grid_c_d,CUFFT_FORWARD)
+    call cufftExecR2C(plan,density_grid_r_d,density_grid_c_d)
 
     !######################################################
     !Compute Gravitational Potential in Fourier Space
@@ -229,7 +230,7 @@ subroutine check_energy(density_grid,nx,ny,nz,particles,N,smbh_m,E)
 
                 K = 1/(abs(k1)**2 + abs(k2)**2 + abs(k3)**2)
 
-                if (k_x > 0) then
+                if (k_x > 0) then       
 
 
                     ! may have errors, debugging
@@ -314,7 +315,7 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
     real,parameter:: pi = atan(1.0)*4 
     real:: factor,constants
 
-   
+    complex:: p_term
 
     ! Iteration
     integer::k_x,k_y,k_z
@@ -452,7 +453,7 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
     factor = 1/N ! precompute to do multiplication instead of division on array ops
 
     ! Apply factor ONLY to the acceleration dimensions not the index ones
-    gravity_grid_r_d(1:3, :, :, :) = gravity_grid_r_d(1:3, :, :, :) * factor
+    gravity_grid(1:3, :, :, :) = gravity_grid(1:3, :, :, :) * factor
 
 
     !Destroy Plan
@@ -692,7 +693,7 @@ subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz, wx0, 
 end subroutine particle_to_grid
  
 
-subroutine grid_to_particle(particles, N, nx, ny, nz, dx, dy, dz, wx0, wy0, wz0, wx1, wy1, wz1 )
+subroutine grid_to_particle(acceleration_grid,particles, N, nx, ny, nz, dx, dy, dz, wx0, wy0, wz0, wx1, wy1, wz1 )
     !
     !Returns accelerations of all particles
     !
@@ -705,7 +706,9 @@ subroutine grid_to_particle(particles, N, nx, ny, nz, dx, dy, dz, wx0, wy0, wz0,
     real :: x, y, z, m
     real :: x_rel, y_rel, z_rel !relative distance of particle in cell
     real :: wx0, wx1, wy0, wy1, wz0, wz1 !interpolation weights
-
+    real :: x_min, y_min, z_min
+    real,dimension(3,nx,ny,nz):: acceleration_grid
+    real:: acc_x,acc_y,acc_z
     x_min = -1.0
     y_min = -1.0
     z_min = -1.0
@@ -736,32 +739,32 @@ subroutine grid_to_particle(particles, N, nx, ny, nz, dx, dy, dz, wx0, wy0, wz0,
         acc_z = 0.0
 
         !interpolate acceleration from the grid to the particle position
-        acc_x = acc_x + acceleration_grid(ix, iy, iz, 1) * wx0 * wy0 * wz0
-        acc_x = acc_x + acceleration_grid(ix + 1, iy, iz, 1) * wx1 * wy0 * wz0
-        acc_x = acc_x + acceleration_grid(ix, iy + 1, iz, 1) * wx0 * wy1 * wz0
-        acc_x = acc_x + acceleration_grid(ix + 1, iy + 1, iz, 1) * wx1 * wy1 * wz0
-        acc_x = acc_x + acceleration_grid(ix, iy, iz + 1, 1) * wx0 * wy0 * wz1
-        acc_x = acc_x + acceleration_grid(ix + 1, iy, iz + 1, 1) * wx1 * wy0 * wz1
-        acc_x = acc_x + acceleration_grid(ix, iy + 1, iz + 1, 1) * wx0 * wy1 * wz1
-        acc_x = acc_x + acceleration_grid(ix + 1, iy + 1, iz + 1, 1) * wx1 * wy1 * wz1
+        acc_x = acc_x + acceleration_grid(1,ix, iy, iz) * wx0 * wy0 * wz0
+        acc_x = acc_x + acceleration_grid(1,ix + 1, iy, iz) * wx1 * wy0 * wz0
+        acc_x = acc_x + acceleration_grid(1,ix, iy + 1, iz) * wx0 * wy1 * wz0
+        acc_x = acc_x + acceleration_grid(1,ix + 1, iy + 1, iz) * wx1 * wy1 * wz0
+        acc_x = acc_x + acceleration_grid(1,ix, iy, iz + 1) * wx0 * wy0 * wz1
+        acc_x = acc_x + acceleration_grid(1,ix + 1, iy, iz + 1) * wx1 * wy0 * wz1
+        acc_x = acc_x + acceleration_grid(1,ix, iy + 1, iz + 1) * wx0 * wy1 * wz1
+        acc_x = acc_x + acceleration_grid(1,ix + 1, iy + 1, iz + 1) * wx1 * wy1 * wz1
 
-        acc_y = acc_y + acceleration_grid(ix, iy, iz, 2) * wx0 * wy0 * wz0
-        acc_y = acc_y + acceleration_grid(ix + 1, iy, iz, 2) * wx1 * wy0 * wz0
-        acc_y = acc_y + acceleration_grid(ix, iy + 1, iz, 2) * wx0 * wy1 * wz0
-        acc_y = acc_y + acceleration_grid(ix + 1, iy + 1, iz, 2) * wx1 * wy1 * wz0
-        acc_y = acc_y + acceleration_grid(ix, iy, iz + 1, 2) * wx0 * wy0 * wz1
-        acc_y = acc_y + acceleration_grid(ix + 1, iy, iz + 1, 2) * wx1 * wy0 * wz1
-        acc_y = acc_y + acceleration_grid(ix, iy + 1, iz + 1, 2) * wx0 * wy1 * wz1
-        acc_y = acc_y + acceleration_grid(ix + 1, iy + 1, iz + 1, 2) * wx1 * wy1 * wz1
+        acc_y = acc_y + acceleration_grid(2,ix, iy, iz) * wx0 * wy0 * wz0
+        acc_y = acc_y + acceleration_grid(2,ix + 1, iy, iz) * wx1 * wy0 * wz0
+        acc_y = acc_y + acceleration_grid(2,ix, iy + 1, iz) * wx0 * wy1 * wz0
+        acc_y = acc_y + acceleration_grid(2,ix + 1, iy + 1, iz) * wx1 * wy1 * wz0
+        acc_y = acc_y + acceleration_grid(2,ix, iy, iz + 1) * wx0 * wy0 * wz1
+        acc_y = acc_y + acceleration_grid(2,ix + 1, iy, iz + 1) * wx1 * wy0 * wz1
+        acc_y = acc_y + acceleration_grid(2,ix, iy + 1, iz + 1) * wx0 * wy1 * wz1
+        acc_y = acc_y + acceleration_grid(2,ix + 1, iy + 1, iz + 1) * wx1 * wy1 * wz1
 
-        acc_z = acc_z + acceleration_grid(ix, iy, iz, 3) * wx0 * wy0 * wz0
-        acc_z = acc_z + acceleration_grid(ix + 1, iy, iz, 3) * wx1 * wy0 * wz0
-        acc_z = acc_z + acceleration_grid(ix, iy + 1, iz, 3) * wx0 * wy1 * wz0
-        acc_z = acc_z + acceleration_grid(ix + 1, iy + 1, iz, 3) * wx1 * wy1 * wz0
-        acc_z = acc_z + acceleration_grid(ix, iy, iz + 1, 3) * wx0 * wy0 * wz1
-        acc_z = acc_z + acceleration_grid(ix + 1, iy, iz + 1, 3) * wx1 * wy0 * wz1
-        acc_z = acc_z + acceleration_grid(ix, iy + 1, iz + 1, 3) * wx0 * wy1 * wz1
-        acc_z = acc_z + acceleration_grid(ix + 1, iy + 1, iz + 1, 3) * wx1 * wy1 * wz1
+        acc_z = acc_z + acceleration_grid(3,ix, iy, iz) * wx0 * wy0 * wz0
+        acc_z = acc_z + acceleration_grid(3,ix + 1, iy, iz) * wx1 * wy0 * wz0
+        acc_z = acc_z + acceleration_grid(3,ix, iy + 1, iz) * wx0 * wy1 * wz0
+        acc_z = acc_z + acceleration_grid(3,ix + 1, iy + 1, iz) * wx1 * wy1 * wz0
+        acc_z = acc_z + acceleration_grid(3,ix, iy, iz + 1) * wx0 * wy0 * wz1
+        acc_z = acc_z + acceleration_grid(3,ix + 1, iy, iz + 1) * wx1 * wy0 * wz1
+        acc_z = acc_z + acceleration_grid(3,ix, iy + 1, iz + 1) * wx0 * wy1 * wz1
+        acc_z = acc_z + acceleration_grid(3,ix + 1, iy + 1, iz + 1) * wx1 * wy1 * wz1
 
         ! Update particle acceleration components
         particles(7, i) = acc_x
