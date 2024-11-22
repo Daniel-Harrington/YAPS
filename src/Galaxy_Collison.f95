@@ -171,7 +171,7 @@ subroutine check_energy(density_grid,nx,ny,nz,particles,N,smbh_m,E)
 
 
     ! Allocate input and output arrays on the device memory (gpu)
-   
+
     allocate(density_grid_r_d(nx,ny,nz))
 
     density_grid_r_d = density_grid ! transfer from host to device
@@ -338,6 +338,7 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
     !   Device Initializations
     !#########################
 
+    
     ! Real and complex density on gpu
     real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
     complex, Dimension(:,:,:), allocatable,device:: density_grid_c_d
@@ -346,7 +347,9 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
     complex, Dimension(:,:,:,:), allocatable,device:: gravity_grid_c_d
     real, Dimension(:,:,:,:), allocatable, device :: gravity_grid_r_d
 
+    print*,"Got here"
     call cudaSetDevice(0)
+    print*,"Got here"
 
     !#######################################
     !   Forward FFT
@@ -387,7 +390,7 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
     ! this saves memory since we need to recompute density each
     ! step anyways
     
-
+    
     constants =  -4*pi*G
     ! From dividing a full 2pi wave over the length of each cell
     ! we get these deltas https://en.wikipedia.org/wiki/Wave_vector#Definition
@@ -472,7 +475,7 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
     ! just particles(7:9,:) = accel_array
     ! but that only works on same size arr
 
-    particles(7:9,:) = 0! mapped array (or do in-place)
+    particles(7:9,:) = 0!   
     
 
     
@@ -591,7 +594,7 @@ subroutine initiate_particles(particle_arr,N,Ra)
     close(10)
 end subroutine initiate_particles
 
-subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz, wx0, wy0, wz0, wx1, wy1, wz1)
+subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
     !
     ! Returns density grip of all particles
     ! TODO : dx dy dz allready contained in particles likely unecessary inputs
@@ -625,7 +628,7 @@ subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz, wx0, 
     
         !ignore particles outside the range [-1.0, 1.0]
         if (x < -1.0 .or. x > 1.0 .or. y < -1.0 .or. y > 1.0 .or. z < -1.0 .or. z > 1.0) cycle
-    
+        
         !determine the grid index from particle position
         ix = floor((x - x_min) / (2.0*dx)) + 1
         iy = floor((y - y_min) / (2.0*dy)) + 1
@@ -654,41 +657,29 @@ subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz, wx0, 
         print *, "__________________________"
     
         !calculate weights
+
+
         wx0 = 1.0 - x_rel 
         wx1 = x_rel 
         wy0 = 1.0 - y_rel 
         wy1 = y_rel 
         wz0 = 1.0 - z_rel 
         wz1 = z_rel 
-    
+        
         !update density field
         density(ix, iy, iz) = density(ix, iy, iz) + m * wx0 * wy0 * wz0 
+
         density(ix+1, iy, iz) = density(ix+1, iy, iz) + m * wx1 * wy0 * wz0 
         density(ix, iy+1, iz) = density(ix, iy+1, iz) + m * wx0 * wy1 * wz0 
         density(ix+1, iy+1, iz) = density(ix+1, iy+1, iz) + m * wx1 * wy1 * wz0
+
         density(ix, iy, iz+1) = density(ix, iy, iz+1) + m * wx0 * wy0 * wz1
         density(ix+1, iy, iz+1) = density(ix+1, iy, iz+1) + m * wx1 * wy0 * wz1
         density(ix, iy+1, iz+1) = density(ix, iy+1, iz+1) + m * wx0 * wy1 * wz1 
         density(ix+1, iy+1, iz+1) = density(ix+1, iy+1, iz+1) + m * wx1 * wy1 * wz1
-    
+        
     end do
 
-    open(unit = 10, file='densityfield.csv', status="replace", action="write")
-
-    write(10, '(A)') "x,y,z,density"
-
-    do k = 1, nz
-        z = (k - 1.0) * dz
-        do j = 1, ny
-            y = (j - 1.0) * dy
-            do i = 1, nx
-                x = (i - 1.0) * dx
-                write(10, '(F8.3, ",", F8.3, ",", F8.3, ",", F10.5)') x, y, z, density(i, j, k)
-            end do
-        end do
-    end do
-
-    close(10)
 
 end subroutine particle_to_grid
  
@@ -799,15 +790,20 @@ program nbody_sim
     call initiate_particles(particles,N,1)
 
     ! initial E_0
+    print*, 'Got past initialization'
     call check_energy(density,nx,ny,nz,particles,N,smbh_m,E_0)
+    print*, 'Got past check energy'
 
 
     ! These 2 will go inside a do loop until end condition
     call particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
+    print*, 'Got past particle to grid'
     ! add an if for however many steps 
     call check_energy(density,nx,ny,nz,particles,N,smbh_m,E)
+    print*, 'Got past second energy check'
 
     call integration_step(density, nx, ny, nz, particles, N, dt)
+    print*, 'Got past integration step energy check'
 
     ! need a step to write out
  
