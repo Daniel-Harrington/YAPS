@@ -245,6 +245,8 @@ subroutine check_energy(density_grid,nx,ny,nz,particles,N,smbh_m,E)
     !Destroy Plan
     call cufftDestroy(plan)
 
+
+    
     ! Release memory
     deallocate (density_grid_r_d,density_grid_c_d)
 
@@ -354,16 +356,12 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
     !#######################################
     !   Forward FFT
     !#######################################
-    
-    
 
 
     ! Allocate input and output arrays on the device memory (gpu)
     allocate(density_grid_r_d(nx,ny,nz))
-
     density_grid_r_d = density_grid ! transfer from host to device
     
-
     ! https://docs.nvidia.com/cuda/cufft/index.html#multidimensional-transforms
     allocate(density_grid_c_d(nx,ny,(nz/2 +1)))
 
@@ -372,6 +370,7 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
     allocate(gravity_grid_c_d(3,nx,ny,(nz/2 +1)))
     allocate(gravity_grid_r_d(3,nx,ny,nz))
 
+    
 
     ! 3D R2C Fourier Transform plan setup
     call cufftPlan3d(plan, nx,ny,nz,CUFFT_R2C)
@@ -450,7 +449,10 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
     ! Move from device to host
     gravity_grid = gravity_grid_r_d
 
-
+    print*, "Density Grid"
+    print*, density_grid
+    print*, "Gravity Grid"
+    print*, gravity_grid
     ! Normalize Gravity Cube in real space(divide by N/)
     
     factor = 1/N ! precompute to do multiplication instead of division on array ops
@@ -458,7 +460,7 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
     ! Apply factor ONLY to the acceleration dimensions not the index ones
     gravity_grid(1:3, :, :, :) = gravity_grid(1:3, :, :, :) * factor
 
-
+    
     !Destroy Plan
     call cufftDestroy(plan)
 
@@ -526,7 +528,7 @@ subroutine integration_step(density_grid,nx,ny,nz, particles, N, dt)
     
 end subroutine integration_step
 
-subroutine initiate_particles2(particle_arr,N,Ra)
+subroutine initialize_particles2(particle_arr,N,Ra)
     !
     !   Iniatiates the particle positions to form a single galaxy after 2 have been merged 
     !   The larger SMBH in the center and a smaller one now orbating near 
@@ -615,10 +617,10 @@ subroutine initiate_particles2(particle_arr,N,Ra)
 
     ! Close the file
     close(10)
-end subroutine initiate_particles2
+end subroutine initialize_particles2
 
 
-subroutine initiate_particles(particle_arr,N,Ra)
+subroutine initialize_particles(particle_arr,N,Ra)
     !
     !   Iniatiates the particle positions to form 2 spiral galaxies
     !   of uniform density and with inital velocities suitable for stable orbit 
@@ -726,7 +728,7 @@ subroutine initiate_particles(particle_arr,N,Ra)
 
     ! Close the file
     close(10)
-end subroutine initiate_particles
+end subroutine initialize_particles
 
 subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
     !
@@ -789,7 +791,7 @@ subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
         ! print *, "Grid index", ix, iy, iz
         ! print *, "Relative position:", x_rel, y_rel, z_rel 
         ! print *, "__________________________"
-    
+        
         !calculate weights
 
 
@@ -961,15 +963,13 @@ program nbody_sim
     call check_energy(density,nx,ny,nz,particles,N,smbh_m,E_0)
     print*, 'Got past check energy'
 
-    do i=1, 1000
-        ! These 2 will go inside a do loop until end condition
-        call particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
 
-        ! Track particle 
-        call track_a_particle(particle_to_track,particles,i)
-        
-        ! add an if for however many steps 
-        !call check_energy(density,nx,ny,nz,particles,N,smbh_m,E)
+    ! These 2 will go inside a do loop until end condition
+    call particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
+    print*, 'Got past particle to grid'
+    ! add an if for however many steps 
+    call check_energy(density,nx,ny,nz,particles,N,smbh_m,E)
+    print*, 'Got past second energy check'
 
         call integration_step(density, nx, ny, nz, particles, N, dt)
         print*, "Done step: ", i
