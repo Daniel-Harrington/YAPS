@@ -1,5 +1,95 @@
 
-subroutine check_energy(density_accel_grid,nx,ny,nz,particles,N,smbh_m,E)
+!_____________________________________________________________________________
+! modules
+!
+! pgf95 -Mcuda -ta=nvidia,cc50,time -fast -O2 -Minfo=par -c cufft_module.f95
+
+!
+! Define the interface to the NVIDIA CUFFT routines
+!
+
+module precision
+    ! Precision control
+    integer, parameter, public :: Single = kind(0.0)   ! Single precision
+    integer, parameter, public :: Double = kind(0.0d0) ! Double precision
+    !integer, parameter, public :: fp_kind = Double
+    integer, parameter, public :: fp_kind = Single
+end module precision
+    
+module cufft_interface
+
+integer, public :: CUFFT_FORWARD = -1
+integer, public :: CUFFT_INVERSE =  1
+integer, public :: CUFFT_R2C = Z'2a' ! Real to Complex (interleaved)
+integer, public :: CUFFT_C2R = Z'2c' ! Complex (interleaved) to Real
+integer, public :: CUFFT_C2C = Z'29' ! Complex to Complex, interleaved
+integer, public :: CUFFT_D2Z = Z'6a' ! Double to Double-Complex
+integer, public :: CUFFT_Z2D = Z'6c' ! Double-Complex to Double
+integer, public :: CUFFT_Z2Z = Z'69' ! Double-Complex to Double-Complex
+
+
+! 
+! cufftResult
+! cufftPlan1d (cufftHandle *plan, int rank, int *n,
+! int *inembed, int istride, int idist,
+! int *onembed, int ostride, int odist, cufftType type, int batch)
+! 
+
+interface cufftPlan3d
+subroutine cufftPlan3d(plan, nx, ny, nz, type) bind(C,name='cufftPlan3d')
+use iso_c_binding
+integer(c_int):: plan
+integer(c_int),value:: nx, ny, nz, type
+end subroutine cufftPlan3d
+end interface cufftPlan3d
+    
+!
+! cufftDestroy(cufftHandle plan)
+! 
+interface cufftDestroy
+subroutine cufftDestroy(plan) bind(C,name='cufftDestroy')
+use iso_c_binding
+integer(c_int),value:: plan
+end subroutine cufftDestroy
+end interface cufftDestroy
+    
+!
+! cufftExecR2C(cufftHandle plan,
+! cufftReal *idata,
+! cufftComplex *odata,
+!
+interface cufftExecR2C
+subroutine cufftExecR2C(plan, idata, odata) &
+& bind(C,name='cufftExecR2C')
+use iso_c_binding
+use precision
+integer(c_int),value:: plan
+real(fp_kind),device:: idata(*)
+complex(fp_kind),device::odata(*)
+end subroutine cufftExecR2C
+end interface cufftExecR2C
+
+!
+! cufftExecC2R(cufftHandle plan,
+! cufftComplex *idata,
+! cufftReal *odata,
+!
+interface cufftExecC2R
+subroutine cufftExecC2R(plan, idata, odata) &
+& bind(C,name='cufftExecR2C')
+use iso_c_binding
+use precision
+integer(c_int),value:: plan
+complex(fp_kind),device:: idata(*)
+real(fp_kind),device::odata(*)
+end subroutine cufftExecC2R
+end interface cufftExecC2R
+
+end module cufft_interface
+    
+
+
+subroutine check_energy(density_grid,nx,ny,nz,particles,N,smbh_m,E)
     !###########################################################
     ! Instructions:
     !      This function is NON Desctructive, ie not operating
@@ -11,7 +101,7 @@ subroutine check_energy(density_accel_grid,nx,ny,nz,particles,N,smbh_m,E)
     !      pass in the supermassive black holes mass
     !      into smbh_m
     !
-    !       density_accel_grid : real(nx,ny,nz)
+    !       density_grid : real(nx,ny,nz)
     !            nx,ny,nz      : int,int, N
     !           particles      : real(9,N)
     !           smbh_m         : real
@@ -19,8 +109,8 @@ subroutine check_energy(density_accel_grid,nx,ny,nz,particles,N,smbh_m,E)
     !               E          : real
     !
      !##########################################################
-    use cudafor
-    use cfft
+    use precision
+    use cufft_interface
     implicit none
     
     !########################
@@ -31,7 +121,7 @@ subroutine check_energy(density_accel_grid,nx,ny,nz,particles,N,smbh_m,E)
     ! I can operate in place on the density grid since it needs to be
     ! recomputed anyways, this way avoids creating another huge 3d array of grid_dim^3 cells
     ! atleast on the cpu
-    real, Dimension( nx,ny,nz) :: density_accel_grid
+    real, Dimension( nx,ny,nz) :: density_grid
     
     real, Dimension(9,N)::particles
     real, Dimension(3):: v_i
@@ -65,8 +155,9 @@ subroutine check_energy(density_accel_grid,nx,ny,nz,particles,N,smbh_m,E)
     !###################################
     !   Device Initialization
     !###################################
-    real, Dimension(:,:,:), allocatable, device :: gpu_accel_grid_r
-    complex, Dimension(:,:,:), allocatable,device:: gpu_accel_grid_c
+    real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
+    complex(fp_kind), Dimension(:,:,:), allocatable,device:: density_grid_c_d
+    call cudaSetDevice(0)
 
 
 
@@ -79,28 +170,19 @@ subroutine check_energy(density_accel_grid,nx,ny,nz,particles,N,smbh_m,E)
 
     ! Allocate input and output arrays on the device memory (gpu)
    
-    allocate(gpu_accel_grid_r(nx,ny,nz))
+    allocate(density_grid_r_d(nx,ny,nz))
 
-    gpu_accel_grid_r = density_accel_grid ! transfer from host to device
+    density_grid_r_d = density_grid ! transfer from host to device
     
 
     ! https://docs.nvidia.com/cuda/cufft/index.html#multidimensional-transforms
-    allocate(gpu_accel_grid_c(nx,ny,nz/2 +1))
+    allocate(density_grid_c_d(nx,ny,nz/2 +1))
 
     ! 3D R2C Fourier Transform plan setup
-    status = cufftPlan3d(plan, nx,ny,nz,CUFFT_R2C)
+    call cufftPlan3d(plan, nx,ny,nz,CUFFT_R2C)
 
-    if (status .ne. CUFFT_SUCCESS)then
-        print*, "Error creating R2C GPU Plan :", status
-        stop
-    endif
     ! 3D R2C Fourier Transform execution
-    status = cufftExecR2C(plan,gpu_accel_grid_r,gpu_accel_grid_c)
-
-    if (status .ne. CUFFT_SUCCESS)then
-        print*, "Error executing R2C GPU Plan :", status
-        stop
-    endif
+    call cufftExecC2C(plan,density_grid_r_d,density_grid_c_d,CUFFT_FORWARD)
 
     !######################################################
     !Compute Gravitational Potential in Fourier Space
@@ -148,7 +230,9 @@ subroutine check_energy(density_accel_grid,nx,ny,nz,particles,N,smbh_m,E)
 
                 if (k_x > 0) then
 
-                    p_mag = (abs(gpu_accel_grid_c(k_x))**2 + abs(gpu_accel_grid_c(k_y))**2 + abs(gpu_accel_grid_c(k_z))**2)
+
+                    ! may have errors, debugging
+                    p_mag = density_grid_c_d(k_x,k_y,k_z)
                     U = U + p_mag*K
                 end if
     
@@ -157,11 +241,7 @@ subroutine check_energy(density_accel_grid,nx,ny,nz,particles,N,smbh_m,E)
     end do
 
     !Destroy Plan
-    status = cufftDestroy(plan)
-    if (status /= CUFFT_SUCCESS) then
-        print *, 'Error destroying cuFFT plan'
-        stop
-    end if
+    call cufftDestroy(plan)
 
     U = (2*pi*G/V)*U
 
@@ -191,26 +271,24 @@ subroutine check_energy(density_accel_grid,nx,ny,nz,particles,N,smbh_m,E)
     
 end subroutine check_energy
 
-subroutine compute_accelerations(density_accel_grid,nx,ny,nz,particles,N)
+subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
     !###########################################################
     ! Instructions:
-    !      Pass in a density grid to fill density_accel_grid
+    !      Pass in a density grid to fill density_grid
     !      that will be modified inplace to become accelerations
     !      in a cubic cell region then mapped onto the particles 
     !      corresponding to that region
     !      
     !      nx,nz,ny are grid dimensions
     !
-    !       density_accel_grid : real(nx,ny,nz)
+    !       density_grid : real(nx,ny,nz)
     !            nx,ny,nz      : int,int, N
     !           particles      : real(9,N)
     !               N          : int
     !
      !##########################################################
-
-    ! cuda fft lib requirements
-    use cudafor
-    use cfft
+    use precision
+    use cufft_interface
     implicit none
     
     !########################
@@ -221,7 +299,7 @@ subroutine compute_accelerations(density_accel_grid,nx,ny,nz,particles,N)
     ! I can operate in place on the density grid since it needs to be
     ! recomputed anyways, this way avoids creating another huge 3d array of grid_dim^3 cells
     ! atleast on the cpu
-    real, Dimension( nx,ny,nz) :: density_accel_grid
+    real, Dimension( nx,ny,nz) :: density_grid
     
     real, Dimension(9,N)::particles
 
@@ -253,9 +331,13 @@ subroutine compute_accelerations(density_accel_grid,nx,ny,nz,particles,N)
     !########################
     !   Device Initializations
     !#########################
-    real, Dimension(:,:,:), allocatable, device :: gpu_accel_grid_r
-    complex, Dimension(:,:,:), allocatable,device:: gpu_accel_grid_c
+    real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
+    complex, Dimension(:,:,:), allocatable,device:: density_grid_c_d
+    complex, Dimension(:,:,:,:), allocatable,device:: gravity_grid_c_d
 
+    real, Dimension(:,:,:), allocatable, device :: gravity_grid_r_d
+
+    call cudaSetDevice(0)
 
     !#######################################
     !   Forward FFT
@@ -265,28 +347,20 @@ subroutine compute_accelerations(density_accel_grid,nx,ny,nz,particles,N)
 
 
     ! Allocate input and output arrays on the device memory (gpu)
-    allocate(gpu_accel_grid_r(nx,ny,nz))
+    allocate(density_grid_r_d(nx,ny,nz))
 
-    gpu_accel_grid_r = density_accel_grid ! transfer from host to device
+    density_grid_r_d = density_grid ! transfer from host to device
     
 
     ! https://docs.nvidia.com/cuda/cufft/index.html#multidimensional-transforms
-    allocate(gpu_accel_grid_c(nx,ny,nz/2 +1))
+    allocate(density_grid_c_d(nx,ny,(nz/2 +1)))
 
     ! 3D R2C Fourier Transform plan setup
-    status = cufftPlan3d(plan, nx,ny,nz,CUFFT_R2C)
+    call cufftPlan3d(plan, nx,ny,nz,CUFFT_R2C)
 
-    if (status .ne. CUFFT_SUCCESS)then
-        print*, "Error creating R2C GPU Plan :", status
-        stop
-    endif
     ! 3D R2C Fourier Transform execution
-    status = cufftExecR2C(plan,gpu_accel_grid_r,gpu_accel_grid_c)
+    call cufftExecR2C(plan,density_grid_r_d,density_grid_c_d)
 
-    if (status .ne. CUFFT_SUCCESS)then
-        print*, "Error executing R2C GPU Plan :", status
-        stop
-    endif
 
     !######################################################
     !Compute Gravitational Accelerations in Fourier Space
@@ -332,10 +406,9 @@ subroutine compute_accelerations(density_accel_grid,nx,ny,nz,particles,N)
 
                 K = 1/(abs(k1)**2 + abs(k2)**2 + abs(k3)**2)
 
-            
-                gpu_accel_grid_c(k_x) = k1*gpu_accel_grid_c(k_x) *K*constants
-                gpu_accel_grid_c(k_y) = k2*gpu_accel_grid_c(k_y) *K*constants
-                gpu_accel_grid_c(k_z) = k3*gpu_accel_grid_c(k_z) *K*constants
+                ! needs refactoring
+                density_grid_c_d(k_x,k_y,k_z) = sum((/k1*density_grid_c_d(k_x) *K*constants,k2*density_grid_c_d(k_y)*K*constants,k3*density_grid_c_d(k_z) *K*constants/)**2)
+
     
             end do
         end do
@@ -347,31 +420,21 @@ subroutine compute_accelerations(density_accel_grid,nx,ny,nz,particles,N)
     !#######################################
 
     !Inverse 3D C2R Fourier Transform execution on the Gravity Cube
-    status = cufftExecC2R(plan,gpu_accel_grid_c,gpu_accel_grid_r)
+    call cufftExecC2R(plan,density_grid_c_d,density_grid_r_d)
+    ! Replace density_grid with accels on host memory
 
-    if (status .ne. CUFFT_SUCCESS)then
-        print*, "Error executing C2R :", status
-        stop
-    endif
-    
-
-    ! Replace density_accel_grid with accels on host memory
-
-    density_accel_grid = gpu_accel_grid_r
+    density_grid = density_grid_r_d
 
 
     ! Normalize Gravity Cube in real space(divide by N/)
     
     factor = 1/N ! precompute to do multiplication instead of division on array ops
 
-    density_accel_grid = density_accel_grid*factor
+    density_grid = density_grid*factor
 
     !Destroy Plan
-    status = cufftDestroy(plan)
-    if (status /= CUFFT_SUCCESS) then
-        print *, 'Error destroying cuFFT plan'
-        stop
-    end if
+    call cufftDestroy(plan)
+
 
     ! ################################
     ! Update particles accelerations
@@ -383,7 +446,7 @@ subroutine compute_accelerations(density_accel_grid,nx,ny,nz,particles,N)
     ! just particles(7:9,:) = accel_array
     ! but that only works on same size arr
 
-    particles(7:9,:) = ! mapped array (or do in-place)
+    particles(7:9,:) = 0! mapped array (or do in-place)
     
 
     
@@ -391,6 +454,8 @@ end subroutine compute_accelerations
 
 
 subroutine integration_step(density_grid,nx,ny,nz, particles, N, dt)
+    use precision
+    use cufft_interface
     implicit none
 
     integer,intent(in)::  nx,ny,nz,N
@@ -603,10 +668,13 @@ subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
 end subroutine particle_to_grid
  
 program nbody_sim
+    use precision
+    use cufft_interface
     implicit none
     integer, parameter::N = 1000
     integer, parameter:: nx =20 , ny = 20, nz = 20
     integer:: checkpoint,steps,k
+    real:: smbh_m
     real, dimension(9,N)::particles, particle_arr
     real, parameter::dt = 10e-7 ! Needed to keep Energy change way below 10^-5
     real:: E_0,E,Rm,Vm,t_c,curr_time,Rm_0,anim_time, dx, dy, dz, density(nx, ny, nz)
