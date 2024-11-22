@@ -35,7 +35,7 @@ subroutine initiate_particles(particle_arr,N,Ra)
     particle_arr(7:9, 1) = (/ 0.0, 0.0, 0.0 /)  ! Acceleration
 
     ! Initialize second SMBH
-    particle_arr(1:3, 2) = (/ 0.0, 0.0, 0.0 /)  ! Position
+    particle_arr(1:3, 2) = (/ offset * cos_angle, offset * sin_angle, 0.0 /)  ! Position
     particle_arr(4:6, 2) = (/ 0.0, 0.0, 0.0 /)  ! Velocity
     particle_arr(7:9, 2) = (/ 0.0, 0.0, 0.0 /)  ! Acceleration
 
