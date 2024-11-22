@@ -899,19 +899,49 @@ subroutine grid_to_particle(acceleration_grid,particles, N, nx, ny, nz, dx, dy, 
 
     end subroutine grid_to_particle
 
+subroutine track_a_particle(particle_id, timestep,filename)
+
+    integer :: particle_id 
+    real, dimension(9,:), intent(in) :: particles 
+    integer, intent(in) :: timestep
+    real :: x,y,Z
+    real :: x,y,z
+    
+    !Extract particles's position and velocity 
+    x = particles(1,particle_id)
+    y = particles(2,particle_id)
+    Z = particles(3,particle_id)
+    vx = particles(4,particle_id)
+    vy = particles(5,particle_id)
+    vz = particles(6,particle_id)
+
+    !open the file 
+    open(20, file="track_particle.csv", status="unknown", action="write")
+
+    !Write to file
+    if (timestep==0) then 
+        write(20, '(A)') "timestep,x,y,z,vx,vy,vz"  ! Write header
+    end if 
+    write write(20, '(I8, 6(F12.6, ","))') timestep, x, y, z, vx, vy, vz
+
+    !close file 
+    close(20)
+end subroutine Track_a_particle 
+
 program nbody_sim
     use precision
     use cufft_interface
     implicit none
-    integer, parameter::N = 1000
-    integer, parameter:: nx =20 , ny = 20, nz = 20
-    integer:: checkpoint,steps,k
+    integer, parameter::N = 1000000
+    integer, parameter:: nx =64 , ny = 64, nz = 64
+    integer:: checkpoint,steps,k,i
     real:: smbh_m
     real, dimension(9,N)::particles, particle_arr
-    real, parameter::dt = 10e-7 ! Needed to keep Energy change way below 10^-5
+    real, parameter::dt = 10e-5 ! Needed to keep Energy change way below 10^-5
     real:: E_0,E,Rm,Vm,t_c,curr_time,Rm_0,anim_time, dx, dy, dz, density(nx, ny, nz)
     real,dimension(3)::p
     logical::animate
+    integer:: particle_to_track = 50
 
     dx = 1.0/(nx-1)
     dy = 1.0/(ny-1)
@@ -921,23 +951,31 @@ program nbody_sim
     animate = .true.
     checkpoint = 10 !s
     
-    call initiate_particles(particles,N,1)
+    call initialize_particles2(particles,N,1)
 
     ! initial E_0
     print*, 'Got past initialization'
+    call particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
+    print*, 'Got past particle to grid'
+
     call check_energy(density,nx,ny,nz,particles,N,smbh_m,E_0)
     print*, 'Got past check energy'
 
+    do i=1, 1000
+        ! These 2 will go inside a do loop until end condition
+        call particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
 
-    ! These 2 will go inside a do loop until end condition
-    call particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
-    print*, 'Got past particle to grid'
-    ! add an if for however many steps 
-    call check_energy(density,nx,ny,nz,particles,N,smbh_m,E)
-    print*, 'Got past second energy check'
+        ! Track particle 
+        call track_a_particle(particle_to_track,particles,i)
+        
+        ! add an if for however many steps 
+        !call check_energy(density,nx,ny,nz,particles,N,smbh_m,E)
 
-    call integration_step(density, nx, ny, nz, particles, N, dt)
-    print*, 'Got past integration step energy check'
+        call integration_step(density, nx, ny, nz, particles, N, dt)
+        print*, "Done step: ", i
+
+    
+    end do
 
     ! need a step to write out
  
