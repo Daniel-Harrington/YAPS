@@ -151,6 +151,7 @@ subroutine check_energy(density_grid,nx,ny,nz,particles,N,smbh_m,E)
     ! Wave number stuff
 
     real::del_kx,del_ky,del_kz
+    complex:: p_term
 
     !###################################
     !   Device Initialization
@@ -415,10 +416,15 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
 
                 K = 1/(abs(k1)**2 + abs(k2)**2 + abs(k3)**2)
 
+
+
+                !compute once
+                p_term = density_grid_c_d(k_x, k_y, k_z) * K * constants
+
                 ! Sets x,y,z accelerations in fourier space on device grid
-                gravity_grid_c_d(1, k_x, k_y, k_z) = k1 * density_grid_c_d(k_x) * K * constants
-                gravity_grid_c_d(2, k_x, k_y, k_z) = k2 * density_grid_c_d(k_y) * K * constants
-                gravity_grid_c_d(3, k_x, k_y, k_z) = k3 * density_grid_c_d(k_z) * K * constants
+                gravity_grid_c_d(1, k_x, k_y, k_z) = k1 * p_term
+                gravity_grid_c_d(2, k_x, k_y, k_z) = k2 * p_term
+                gravity_grid_c_d(3, k_x, k_y, k_z) = k3 * p_term
 
 
             end do
@@ -476,8 +482,7 @@ subroutine integration_step(density_grid,nx,ny,nz, particles, N, dt)
 
     integer :: i, j
     real, dimension(9, N) :: particles
-    ! Sub-arrays for clarity
-    real, dimension(3, N) :: x, v, a
+
 
     real :: dt
 
