@@ -300,7 +300,7 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
     ! recomputed anyways, this way avoids creating another huge 3d array of grid_dim^3 cells
     ! atleast on the cpu
     real, Dimension( nx,ny,nz) :: density_grid
-    
+    real, Dimension( 3,nx,ny,nz) :: gravity_grid
     real, Dimension(9,N)::particles
 
     ! Constants
@@ -331,11 +331,14 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
     !########################
     !   Device Initializations
     !#########################
+
+    ! Real and complex density on gpu
     real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
     complex, Dimension(:,:,:), allocatable,device:: density_grid_c_d
-    complex, Dimension(:,:,:,:), allocatable,device:: gravity_grid_c_d
 
-    real, Dimension(:,:,:), allocatable, device :: gravity_grid_r_d
+    ! Real and complex gravities on gpu
+    complex, Dimension(:,:,:,:), allocatable,device:: gravity_grid_c_d
+    real, Dimension(:,:,:,:), allocatable, device :: gravity_grid_r_d
 
     call cudaSetDevice(0)
 
@@ -354,6 +357,12 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
 
     ! https://docs.nvidia.com/cuda/cufft/index.html#multidimensional-transforms
     allocate(density_grid_c_d(nx,ny,(nz/2 +1)))
+
+
+    ! allocate the gravity complex and real grids
+    allocate(gravity_grid_c_d(3,nx,ny,(nz/2 +1)))
+    allocate(gravity_grid_r_d(3,nx,ny,nz))
+
 
     ! 3D R2C Fourier Transform plan setup
     call cufftPlan3d(plan, nx,ny,nz,CUFFT_R2C)
@@ -406,10 +415,12 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
 
                 K = 1/(abs(k1)**2 + abs(k2)**2 + abs(k3)**2)
 
-                ! needs refactoring
-                density_grid_c_d(k_x,k_y,k_z) = sum((/k1*density_grid_c_d(k_x) *K*constants,k2*density_grid_c_d(k_y)*K*constants,k3*density_grid_c_d(k_z) *K*constants/)**2)
+                ! Sets x,y,z accelerations in fourier space on device grid
+                gravity_grid_c_d(1, k_x, k_y, k_z) = k1 * density_grid_c_d(k_x) * K * constants
+                gravity_grid_c_d(2, k_x, k_y, k_z) = k2 * density_grid_c_d(k_y) * K * constants
+                gravity_grid_c_d(3, k_x, k_y, k_z) = k3 * density_grid_c_d(k_z) * K * constants
 
-    
+
             end do
         end do
     end do
@@ -420,17 +431,19 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
     !#######################################
 
     !Inverse 3D C2R Fourier Transform execution on the Gravity Cube
-    call cufftExecC2R(plan,density_grid_c_d,density_grid_r_d)
-    ! Replace density_grid with accels on host memory
+    call cufftExecC2R(plan,gravity_grid_c_d,gravity_grid_r_d)
 
-    density_grid = density_grid_r_d
+    ! Move from device to host
+    gravity_grid = gravity_grid_r_d
 
 
     ! Normalize Gravity Cube in real space(divide by N/)
     
     factor = 1/N ! precompute to do multiplication instead of division on array ops
 
-    density_grid = density_grid*factor
+    ! Apply factor ONLY to the acceleration dimensions not the index ones
+    gravity_grid_r_d(1:3, :, :, :) = gravity_grid_r_d(1:3, :, :, :) * factor
+
 
     !Destroy Plan
     call cufftDestroy(plan)
