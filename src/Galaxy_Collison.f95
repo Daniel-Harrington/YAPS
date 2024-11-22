@@ -204,9 +204,9 @@ subroutine check_energy(density_grid,nx,ny,nz,particles,N,smbh_m,E)
 
     U=0.0
     KE = 0.0
-    do k_x=0,nx
-        do k_y=0,ny
-            do k_z=0,nx/2 + 1
+    do k_x=1,nx
+        do k_y=1,ny
+            do k_z=1,nx/2 + 1
                 
 
                 ! Splitting positive and negative frequencies for x-y equivalents
@@ -398,9 +398,9 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
     del_ky = 2*pi/ny
     del_kz = 2*pi/nz
 
-    do k_x=0,nx
-        do k_y=0,ny
-            do k_z=0,nx/2 + 1
+    do k_x=1,nx
+        do k_y=1,ny
+            do k_z=1,nx/2 + 1
                 
 
                 ! Splitting positive and negative frequencies for x-y equivalents
@@ -463,7 +463,7 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
     call cufftDestroy(plan)
 
     !release memory on the device
-    deallocate (density_grid_r_d,density_grid_c_d,gravity_grid_r_d, gravity_grid_c_d)
+    deallocate(density_grid_r_d,density_grid_c_d,gravity_grid_r_d, gravity_grid_c_d)
 
     ! ################################
     ! Update particles accelerations
