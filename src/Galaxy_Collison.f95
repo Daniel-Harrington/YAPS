@@ -244,6 +244,9 @@ subroutine check_energy(density_grid,nx,ny,nz,particles,N,smbh_m,E)
     !Destroy Plan
     call cufftDestroy(plan)
 
+    ! Release memory
+    deallocate (density_grid_r_d,density_grid_c_d)
+
     U = (2*pi*G/V)*U
 
     m = 1/N
@@ -288,6 +291,7 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
     !               N          : int
     !
      !##########################################################
+
     use precision
     use cufft_interface
     implicit none
@@ -454,6 +458,8 @@ subroutine compute_accelerations(density_grid,nx,ny,nz,particles,N)
     !Destroy Plan
     call cufftDestroy(plan)
 
+    !release memory on the device
+    deallocate (density_grid_r_d,density_grid_c_d,gravity_grid_r_d, gravity_grid_c_d)
 
     ! ################################
     ! Update particles accelerations
