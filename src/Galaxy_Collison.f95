@@ -566,7 +566,7 @@ subroutine initiate_particles(particle_arr,N,Ra)
     close(10)
 end subroutine initiate_particles
 
-subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
+subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz, wx0, wy0, wz0, wx1, wy1, wz1)
     !
     ! Returns density grip of all particles
     ! TODO : dx dy dz allready contained in particles likely unecessary inputs
@@ -667,6 +667,86 @@ subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
 
 end subroutine particle_to_grid
  
+
+subroutine grid_to_particle(particles, N, nx, ny, nz, dx, dy, dz, wx0, wy0, wz0, wx1, wy1, wz1 )
+    !
+    !Returns accelerations of all particles
+    !
+
+    implicit none 
+    integer, intent(in) :: N, nx, ny, nz
+    real :: particles(9, N), dx, dy, dz
+
+    integer :: i, j, k, ix, iy, iz !particle index and grid indices
+    real :: x, y, z, m
+    real :: x_rel, y_rel, z_rel !relative distance of particle in cell
+    real :: wx0, wx1, wy0, wy1, wz0, wz1 !interpolation weights
+
+    x_min = -1.0
+    y_min = -1.0
+    z_min = -1.0
+
+    do i = 1, N
+        x = particles(1, i)
+        y = particles(2, i)
+        z = particles(3, i)
+    
+        !ignore particles outside the range [-1.0, 1.0]
+        if (x < -1.0 .or. x > 1.0 .or. y < -1.0 .or. y > 1.0 .or. z < -1.0 .or. z > 1.0) cycle
+    
+        !determine the grid index from particle position
+        ix = floor((x - x_min) / (2.0*dx)) + 1
+        iy = floor((y - y_min) / (2.0*dy)) + 1
+        iz = floor((z - z_min) / (2.0*dz)) + 1
+    
+        if (ix < 1) ix = 1
+        if (ix >= nx) ix = nx-1
+        if (iy < 1) iy = 1
+        if (iy >= ny) iy = ny-1
+        if (iz < 1) iz = 1
+        if (iz >= nz) iz = nz-1
+
+        !initialize acceleration components
+        acc_x = 0.0
+        acc_y = 0.0
+        acc_z = 0.0
+
+        !interpolate acceleration from the grid to the particle position
+        acc_x = acc_x + acceleration_grid(ix, iy, iz, 1) * wx0 * wy0 * wz0
+        acc_x = acc_x + acceleration_grid(ix + 1, iy, iz, 1) * wx1 * wy0 * wz0
+        acc_x = acc_x + acceleration_grid(ix, iy + 1, iz, 1) * wx0 * wy1 * wz0
+        acc_x = acc_x + acceleration_grid(ix + 1, iy + 1, iz, 1) * wx1 * wy1 * wz0
+        acc_x = acc_x + acceleration_grid(ix, iy, iz + 1, 1) * wx0 * wy0 * wz1
+        acc_x = acc_x + acceleration_grid(ix + 1, iy, iz + 1, 1) * wx1 * wy0 * wz1
+        acc_x = acc_x + acceleration_grid(ix, iy + 1, iz + 1, 1) * wx0 * wy1 * wz1
+        acc_x = acc_x + acceleration_grid(ix + 1, iy + 1, iz + 1, 1) * wx1 * wy1 * wz1
+
+        acc_y = acc_y + acceleration_grid(ix, iy, iz, 2) * wx0 * wy0 * wz0
+        acc_y = acc_y + acceleration_grid(ix + 1, iy, iz, 2) * wx1 * wy0 * wz0
+        acc_y = acc_y + acceleration_grid(ix, iy + 1, iz, 2) * wx0 * wy1 * wz0
+        acc_y = acc_y + acceleration_grid(ix + 1, iy + 1, iz, 2) * wx1 * wy1 * wz0
+        acc_y = acc_y + acceleration_grid(ix, iy, iz + 1, 2) * wx0 * wy0 * wz1
+        acc_y = acc_y + acceleration_grid(ix + 1, iy, iz + 1, 2) * wx1 * wy0 * wz1
+        acc_y = acc_y + acceleration_grid(ix, iy + 1, iz + 1, 2) * wx0 * wy1 * wz1
+        acc_y = acc_y + acceleration_grid(ix + 1, iy + 1, iz + 1, 2) * wx1 * wy1 * wz1
+
+        acc_z = acc_z + acceleration_grid(ix, iy, iz, 3) * wx0 * wy0 * wz0
+        acc_z = acc_z + acceleration_grid(ix + 1, iy, iz, 3) * wx1 * wy0 * wz0
+        acc_z = acc_z + acceleration_grid(ix, iy + 1, iz, 3) * wx0 * wy1 * wz0
+        acc_z = acc_z + acceleration_grid(ix + 1, iy + 1, iz, 3) * wx1 * wy1 * wz0
+        acc_z = acc_z + acceleration_grid(ix, iy, iz + 1, 3) * wx0 * wy0 * wz1
+        acc_z = acc_z + acceleration_grid(ix + 1, iy, iz + 1, 3) * wx1 * wy0 * wz1
+        acc_z = acc_z + acceleration_grid(ix, iy + 1, iz + 1, 3) * wx0 * wy1 * wz1
+        acc_z = acc_z + acceleration_grid(ix + 1, iy + 1, iz + 1, 3) * wx1 * wy1 * wz1
+
+        ! Update particle acceleration components
+        particles(7, i) = acc_x
+        particles(8, i) = acc_y
+        particles(9, i) = acc_z
+    end do
+
+    end subroutine grid_to_particle
+
 program nbody_sim
     use precision
     use cufft_interface
