@@ -785,10 +785,10 @@ subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
         y_rel = (y - y_lower) / (2*dy)
         z_rel = (z - z_lower) / (2*dz)
     
-        print *, "Particle position:", x, y, z 
-        print *, "Grid index", ix, iy, iz
-        print *, "Relative position:", x_rel, y_rel, z_rel 
-        print *, "__________________________"
+        ! print *, "Particle position:", x, y, z 
+        ! print *, "Grid index", ix, iy, iz
+        ! print *, "Relative position:", x_rel, y_rel, z_rel 
+        ! print *, "__________________________"
     
         !calculate weights
 
