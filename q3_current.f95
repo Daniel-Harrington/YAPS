@@ -10,7 +10,7 @@ subroutine initiate_particles(particle_arr,N,Ra)
     Real,Dimension(9,N),intent(out) ::  particle_arr
     real, parameter :: pi = atan(1.0)*4 
     real, parameter :: angle = pi/4 ! Anlge of galaxy 2 relative to galaxy 1
-    real, parameter :: offset = 4
+    real, parameter :: offset = 5
     Real::x,y,z,v_x,v_y,v_z,a_x,a_y,a_z
     real :: x_rot, y_rot
     Integer::i, particles_in_galaxy
