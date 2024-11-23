@@ -509,14 +509,14 @@ module device_ops
         wz1 = z_rel
 
         ! Update density feiled (atomic operations to prevent race condition)
-        atomicadd(density_grid_r_d(ix,iy,iz),m*wx0*wy0*wz0)
-        atomicadd(density_grid_r_d(ix+1,iy,iz),m*wx1*wy0*wz0)
-        atomicadd(density_grid_r_d(ix,iy+1,iz),m*wx0*wy1*wz0)
-        atomicadd(density_grid_r_d(ix+1,iy+1,iz),m*wx1*wy1*wz0)
-        atomicadd(density_grid_r_d(ix,iy,iz+1),m*wx0*wy0*wz1)
-        atomicadd(density_grid_r_d(ix+1,iy,iz+1),m*wx1*wy0*wz1)
-        atomicadd(density_grid_r_d(ix,iy+1,iz+1),m*wx0*wy1*wz1)
-        atomicadd(density_grid_r_d(ix+1,iy+1,iz+1),m*wx1*wy1*wz1)
+        density_grid_r_d(ix, iy , iz) = density_grid_r_d(ix, iy , iz) + m * wx0 * wy0 * wz0
+        density_grid_r_d(ix + 1, iy, iz) = density_grid_r_d(ix + 1, iy, iz) + m * wx1 * wy0 * wz0
+        density_grid_r_d(ix, iy + 1, iz) = density_grid_r_d(ix, iy + 1, iz) + m * wx0 * wy1 * wz0
+        density_grid_r_d(ix + 1, iy + 1, iz) = density_grid_r_d(ix + 1, iy + 1, iz) + m * wx1 * wy1 * wz0
+        density_grid_r_d(ix, iy, iz + 1) = density_grid_r_d(ix, iy, iz + 1) + m * wx0 * wy0 * wz1
+        density_grid_r_d(ix + 1, iy, iz + 1) = density_grid_r_d(ix + 1, iy, iz + 1) + m * wx1 * wy0 * wz1
+        density_grid_r_d(ix, iy + 1, iz + 1) = density_grid_r_d(ix, iy + 1, iz + 1) + m * wx0 * wy1 * wz1
+        density_grid_r_d(ix + 1, iy + 1, iz + 1) = density_grid_r_d(ix + 1, iy + 1, iz + 1) + m * wx1 * wy1 * wz1
     end subroutine
 end module device_ops
     
@@ -539,7 +539,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
 
     use precision
     use cufft_interface
-    use device_ops
+    use device_ops 
     implicit none
     
     !########################
