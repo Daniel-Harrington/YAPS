@@ -773,11 +773,11 @@ subroutine initialize_particles(particle_arr,N,Ra)
     close(10)
 end subroutine initialize_particles
 
-subroutine particle_to_grid(density_full, particles, N, nx, ny, nz, dx, dy, dz)
+subroutine particle_to_grid(density_grid, particles, N, nx, ny, nz, dx, dy, dz)
     implicit none
     integer, intent(in) :: N, nx, ny, nz
     real, intent(in) :: particles(9, N), dx, dy, dz
-    real, intent(out) :: density_full(nx, ny, nz)
+    real, intent(out) :: density_grid(nx, ny, nz)
     real :: density(nx/2, ny/2, nz/2)
 
     integer :: i, j, k, ix, iy, iz !particle index and grid indices
@@ -882,7 +882,7 @@ subroutine particle_to_grid(density_full, particles, N, nx, ny, nz, dx, dy, dz)
             jd = j - jstart + 1
             do i = istart, iend
                 id = i - istart + 1
-                density_full(i, j, k) = density(id, jd, kd)
+                density_grid(i, j, k) = density(id, jd, kd)
             end do
         end do
     end do
@@ -890,7 +890,7 @@ subroutine particle_to_grid(density_full, particles, N, nx, ny, nz, dx, dy, dz)
 end subroutine particle_to_grid
  
 
-subroutine grid_to_particle(acceleration_grid,particles, N, nx, ny, nz, dx, dy, dz, wx0, wy0, wz0, wx1, wy1, wz1 )
+subroutine grid_to_particle(acceleration_grid,particles, N, nx, ny, nz, dx, dy, dz)
     !
     !Returns accelerations of all particles
     !
@@ -899,69 +899,101 @@ subroutine grid_to_particle(acceleration_grid,particles, N, nx, ny, nz, dx, dy, 
     integer, intent(in) :: N, nx, ny, nz
     real :: particles(9, N), dx, dy, dz
 
-    integer :: i, j, k, ix, iy, iz !particle index and grid indices
+    integer :: i, j, k, ix, iy, iz, ix_shifted, iy_shifted, iz_shifted !particle index and grid indices
     real :: x, y, z, m
     real :: x_rel, y_rel, z_rel !relative distance of particle in cell
     real :: wx0, wx1, wy0, wy1, wz0, wz1 !interpolation weights
     real :: x_min, y_min, z_min
     real,dimension(3,nx,ny,nz):: acceleration_grid
     real:: acc_x,acc_y,acc_z
-    x_min = -1.0
-    y_min = -1.0
-    z_min = -1.0
+    x_min = -1.5
+    x_max = 1.5
+    y_min = -1.5
+    y_max = 1.5
+    z_min = -1.5
+    z_max = 1.5
+    delta = (x_max - x_min) / ((nx/2)-1) 
 
+
+    !read particle position from initial array
     do i = 1, N
+        if (i == 1 .or. i ==2) then 
+            m = 1.0  !assign mass to each particle
+        else
+            m = 1.0
+        end if 
         x = particles(1, i)
         y = particles(2, i)
         z = particles(3, i)
     
         !ignore particles outside the range [-1.0, 1.0]
-        if (x < -1.0 .or. x > 1.0 .or. y < -1.0 .or. y > 1.0 .or. z < -1.0 .or. z > 1.0) cycle
-    
-        !determine the grid index from particle position
-        ix = floor((x - x_min) / (2.0*dx)) + 1
-        iy = floor((y - y_min) / (2.0*dy)) + 1
-        iz = floor((z - z_min) / (2.0*dz)) + 1
+        if (x < -1.5 .or. x > 1.5 .or. y < -1.5 .or. y > 1.5 .or. z < -1.5 .or. z > 1.5) cycle
+
+        ix = int(floor((x - x_min) / delta)) + 1
+        iy = int(floor((y - y_min) / delta)) + 1
+        iz = int(floor((z - z_min) / delta)) + 1
     
         if (ix < 1) ix = 1
-        if (ix >= nx) ix = nx-1
+        if (ix >= nx/2) ix = nx/2 -1
         if (iy < 1) iy = 1
-        if (iy >= ny) iy = ny-1
+        if (iy >= ny) iy = ny/2 -1
         if (iz < 1) iz = 1
-        if (iz >= nz) iz = nz-1
+        if (iz >= nz) iz = nz/2 -1
+
+        x_i = x_min + (ix - 1) * delta
+        y_j = x_min + (iy - 1) * delta
+        z_k = x_min + (iz - 1) * delta
+    
+        !calcualte relative distance of particle in the cell
+        x_rel = (x - x_i) / delta
+        y_rel = (y - y_j) / delta 
+        z_rel = (z - z_k) / delta
+    
+        !calculate weights
+        wx0 = 1.0 - x_rel 
+        wx1 = x_rel 
+        wy0 = 1.0 - y_rel 
+        wy1 = y_rel 
+        wz0 = 1.0 - z_rel 
+        wz1 = z_rel 
+
 
         !initialize acceleration components
         acc_x = 0.0
         acc_y = 0.0
         acc_z = 0.0
 
+        ix_shifted = ix + nx/4
+        iy_shifted = iy + ny/4
+        iz_shifted = iz + nz/4
+
         !interpolate acceleration from the grid to the particle position
-        acc_x = acc_x + acceleration_grid(1,ix, iy, iz) * wx0 * wy0 * wz0
-        acc_x = acc_x + acceleration_grid(1,ix + 1, iy, iz) * wx1 * wy0 * wz0
-        acc_x = acc_x + acceleration_grid(1,ix, iy + 1, iz) * wx0 * wy1 * wz0
-        acc_x = acc_x + acceleration_grid(1,ix + 1, iy + 1, iz) * wx1 * wy1 * wz0
-        acc_x = acc_x + acceleration_grid(1,ix, iy, iz + 1) * wx0 * wy0 * wz1
-        acc_x = acc_x + acceleration_grid(1,ix + 1, iy, iz + 1) * wx1 * wy0 * wz1
-        acc_x = acc_x + acceleration_grid(1,ix, iy + 1, iz + 1) * wx0 * wy1 * wz1
-        acc_x = acc_x + acceleration_grid(1,ix + 1, iy + 1, iz + 1) * wx1 * wy1 * wz1
+        acc_x = acc_x + acceleration_grid(1,ix_shifted, iy_shifted, iz_shifted) * wx0 * wy0 * wz0
+        acc_x = acc_x + acceleration_grid(1,ix_shifted + 1, iy_shifted, iz_shifted) * wx1 * wy0 * wz0
+        acc_x = acc_x + acceleration_grid(1,ix_shifted, iy_shifted + 1, iz_shifted) * wx0 * wy1 * wz0
+        acc_x = acc_x + acceleration_grid(1,ix_shifted + 1, iy_shifted + 1, iz_shifted) * wx1 * wy1 * wz0
+        acc_x = acc_x + acceleration_grid(1,ix_shifted, iy_shifted, iz_shifted + 1) * wx0 * wy0 * wz1
+        acc_x = acc_x + acceleration_grid(1,ix_shifted + 1, iy_shifted, iz_shifted + 1) * wx1 * wy0 * wz1
+        acc_x = acc_x + acceleration_grid(1,ix_shifted, iy_shifted + 1, iz_shifted + 1) * wx0 * wy1 * wz1
+        acc_x = acc_x + acceleration_grid(1,ix_shifted + 1, iy_shifted + 1, iz_shifted + 1) * wx1 * wy1 * wz1
 
-        acc_y = acc_y + acceleration_grid(2,ix, iy, iz) * wx0 * wy0 * wz0
-        acc_y = acc_y + acceleration_grid(2,ix + 1, iy, iz) * wx1 * wy0 * wz0
-        acc_y = acc_y + acceleration_grid(2,ix, iy + 1, iz) * wx0 * wy1 * wz0
-        acc_y = acc_y + acceleration_grid(2,ix + 1, iy + 1, iz) * wx1 * wy1 * wz0
-        acc_y = acc_y + acceleration_grid(2,ix, iy, iz + 1) * wx0 * wy0 * wz1
-        acc_y = acc_y + acceleration_grid(2,ix + 1, iy, iz + 1) * wx1 * wy0 * wz1
-        acc_y = acc_y + acceleration_grid(2,ix, iy + 1, iz + 1) * wx0 * wy1 * wz1
-        acc_y = acc_y + acceleration_grid(2,ix + 1, iy + 1, iz + 1) * wx1 * wy1 * wz1
+        acc_y = acc_y + acceleration_grid(2,ix_shifted, iy_shifted, iz_shifted) * wx0 * wy0 * wz0
+        acc_y = acc_y + acceleration_grid(2,ix_shifted + 1, iy_shifted, iz_shifted) * wx1 * wy0 * wz0
+        acc_y = acc_y + acceleration_grid(2,ix_shifted, iy_shifted + 1, iz_shifted) * wx0 * wy1 * wz0
+        acc_y = acc_y + acceleration_grid(2,ix_shifted + 1, iy_shifted + 1, iz_shifted) * wx1 * wy1 * wz0
+        acc_y = acc_y + acceleration_grid(2,ix_shifted, iy_shifted, iz_shifted + 1) * wx0 * wy0 * wz1
+        acc_y = acc_y + acceleration_grid(2,ix_shifted + 1, iy_shifted, iz_shifted + 1) * wx1 * wy0 * wz1
+        acc_y = acc_y + acceleration_grid(2,ix_shifted, iy_shifted + 1, iz_shifted + 1) * wx0 * wy1 * wz1
+        acc_y = acc_y + acceleration_grid(2,ix_shifted + 1, iy_shifted + 1, iz_shifted + 1) * wx1 * wy1 * wz1
 
-        acc_z = acc_z + acceleration_grid(3,ix, iy, iz) * wx0 * wy0 * wz0
-        acc_z = acc_z + acceleration_grid(3,ix + 1, iy, iz) * wx1 * wy0 * wz0
-        acc_z = acc_z + acceleration_grid(3,ix, iy + 1, iz) * wx0 * wy1 * wz0
-        acc_z = acc_z + acceleration_grid(3,ix + 1, iy + 1, iz) * wx1 * wy1 * wz0
-        acc_z = acc_z + acceleration_grid(3,ix, iy, iz + 1) * wx0 * wy0 * wz1
-        acc_z = acc_z + acceleration_grid(3,ix + 1, iy, iz + 1) * wx1 * wy0 * wz1
-        acc_z = acc_z + acceleration_grid(3,ix, iy + 1, iz + 1) * wx0 * wy1 * wz1
-        acc_z = acc_z + acceleration_grid(3,ix + 1, iy + 1, iz + 1) * wx1 * wy1 * wz1
+        acc_z = acc_z + acceleration_grid(3,ix_shifted, iy_shifted, iz_shifted) * wx0 * wy0 * wz0
+        acc_z = acc_z + acceleration_grid(3,ix_shifted + 1, iy_shifted, iz_shifted) * wx1 * wy0 * wz0
+        acc_z = acc_z + acceleration_grid(3,ix_shifted, iy_shifted + 1, iz_shifted) * wx0 * wy1 * wz0
+        acc_z = acc_z + acceleration_grid(3,ix_shifted + 1, iy_shifted + 1, iz_shifted) * wx1 * wy1 * wz0
+        acc_z = acc_z + acceleration_grid(3,ix_shifted, iy_shifted, iz_shifted + 1) * wx0 * wy0 * wz1
+        acc_z = acc_z + acceleration_grid(3,ix_shifted + 1, iy_shifted, iz_shifted + 1) * wx1 * wy0 * wz1
+        acc_z = acc_z + acceleration_grid(3,ix_shifted, iy_shifted + 1, iz_shifted + 1) * wx0 * wy1 * wz1
+        acc_z = acc_z + acceleration_grid(3,ix_shifted + 1, iy_shifted + 1, iz_shifted + 1) * wx1 * wy1 * wz1
 
         ! Update particle acceleration components
         particles(7, i) = acc_x
