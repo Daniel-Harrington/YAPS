@@ -619,6 +619,7 @@ subroutine initialize_particles2(particle_arr,N,Ra)
     particle_arr(7:9, 2) = (/ 0.0, 0.0, 0.0 /)  ! Acceleration
 
     ! Particles in first galaxy
+    !$omp parallel do private(r,theta,ranfom_offset,x,y,z,v_x,v_y,v_z) shared(particle_Array,Ra,spiral_factor,arm_separation)
     do i = 3, N
         ! Set radial distance r within the range [Ra/4, Ra] with random variation
         call random_number(r)
@@ -645,6 +646,7 @@ subroutine initialize_particles2(particle_arr,N,Ra)
         particle_arr(:,i) = (/x,y,z,v_x,v_y,v_z,a_x,a_y,a_z/)
 
     end do 
+    !$omp end parallel do 
 
     ! Open a file with a unique unit number
     
@@ -704,6 +706,7 @@ subroutine initialize_particles(particle_arr,N,Ra)
     particle_arr(7:9, 2) = (/ 0.0, 0.0, 0.0 /)  ! Acceleration
 
     ! Particles in first galaxy
+    !$omp parallel do private(r, theta, random_offset, x, y, z, v_x, v_y, v_z) shared(particle_arr, Ra, spiral_factor, arm_separation)
     do i = 3, particles_in_galaxy + 2
         ! Set radial distance r within the range [Ra/4, Ra] with random variation
         call random_number(r)
@@ -730,8 +733,10 @@ subroutine initialize_particles(particle_arr,N,Ra)
         particle_arr(:,i) = (/x,y,z,v_x,v_y,v_z,a_x,a_y,a_z/)
 
     end do 
+    !$omp end parallel do
 
     ! Generate particles for the second galaxy
+    !$omp parallel do private(r, theta, random_offset, x, y, z, v_x, v_y, v_z, x_rot, y_rot) shared(particle_arr, Ra, spiral_factor, arm_separation, cos_angle, sin_angle, offset)
     do i = particles_in_galaxy + 3, N
         call random_number(r)
         r = Ra/2 + r * (Ra - Ra/2)
@@ -756,6 +761,8 @@ subroutine initialize_particles(particle_arr,N,Ra)
 
         particle_arr(:, i) = (/ x_rot, y_rot, z, v_x, v_y, v_z, 0.0, 0.0, 0.0 /)
     end do
+    !$omp end parallel do
+
 
     ! Open a file with a unique unit number
     
