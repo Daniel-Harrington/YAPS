@@ -109,99 +109,180 @@ subroutine initiate_particles(particle_arr,N,Ra)
     close(10)
 end subroutine initiate_particles
 
-subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
+subroutine particle_to_grid(density_full, particles, N, nx, ny, nz, dx, dy, dz)
+    use cudafor
     implicit none
     integer, intent(in) :: N, nx, ny, nz
     real, intent(in) :: particles(9, N), dx, dy, dz
-    real, intent(out) :: density(nx, ny, nz)
+    real, intent(out) :: density_full(nx, ny, nz)
+  
 
-    integer :: i, j, k, ix, iy, iz !particle index and grid indices
-    real :: x, y, z, m
-    real :: x_rel, y_rel, z_rel !relative distance of particle in cell
-    real :: wx0, wx1, wy0, wy1, wz0, wz1 !interpolation weights
-    real :: x_min, y_min, z_min, x_lower, y_lower, z_lower
+    real, device :: d_particles(9, N)
+    real, device :: d_density(nx/2, ny/2, nz/2)
+  
 
-    density = 0.0 
-    x_min = -1.0
-    y_min = -1.0
-    z_min = -1.0
+    real :: density(nx/2, ny/2, nz/2)
+  
 
-    m = 1.0 !assign mass to each particle
+    integer :: threadsPerBlock, blocksPerGrid
+    integer :: i, j, k, istart, iend, jstart, jend, kstart, kend
+    integer :: nx_inner, ny_inner, nz_inner
+    integer :: id, jd, kd
+  
 
-    !read particle position from initial array
-    do i = 1, N
-        x = particles(1, i)
-        y = particles(2, i)
-        z = particles(3, i)
-    
-        !ignore particles outside the range [-1.0, 1.0]
-        if (x < -1.0 .or. x > 1.0 .or. y < -1.0 .or. y > 1.0 .or. z < -1.0 .or. z > 1.0) cycle
-    
-        !determine the grid index from particle position
-        ix = floor((x - x_min) / (2.0*dx)) + 1
-        iy = floor((y - y_min) / (2.0*dy)) + 1
-        iz = floor((z - z_min) / (2.0*dz)) + 1
-    
-        if (ix < 1) ix = 1
-        if (ix >= nx) ix = nx-1
-        if (iy < 1) iy = 1
-        if (iy >= ny) iy = ny-1
-        if (iz < 1) iz = 1
-        if (iz >= nz) iz = nz-1
-    
-        !calculate lower bound of the particle
-        x_lower = x_min + (ix-1) * (2*dx)
-        y_lower = y_min + (iy - 1) * (dy*2.0)
-        z_lower = z_min + (iz - 1) * (dz*2.0)
+    density = 0.0
 
-        !compute relative positions
-        x_rel = (x - x_lower) / (2*dx)
-        y_rel = (y - y_lower) / (2*dy)
-        z_rel = (z - z_lower) / (2*dz)
-    
-        print *, "Particle position:", x, y, z 
-        print *, "Grid index", ix, iy, iz
-        print *, "Relative position:", x_rel, y_rel, z_rel 
-        print *, "__________________________"
-    
-        !calculate weights
-        wx0 = 1.0 - x_rel 
-        wx1 = x_rel 
-        wy0 = 1.0 - y_rel 
-        wy1 = y_rel 
-        wz0 = 1.0 - z_rel 
-        wz1 = z_rel 
-    
-        !update density field
-        density(ix, iy, iz) = density(ix, iy, iz) + m * wx0 * wy0 * wz0 
-        density(ix+1, iy, iz) = density(ix+1, iy, iz) + m * wx1 * wy0 * wz0 
-        density(ix, iy+1, iz) = density(ix, iy+1, iz) + m * wx0 * wy1 * wz0 
-        density(ix+1, iy+1, iz) = density(ix+1, iy+1, iz) + m * wx1 * wy1 * wz0
-        density(ix, iy, iz+1) = density(ix, iy, iz+1) + m * wx0 * wy0 * wz1
-        density(ix+1, iy, iz+1) = density(ix+1, iy, iz+1) + m * wx1 * wy0 * wz1
-        density(ix, iy+1, iz+1) = density(ix, iy+1, iz+1) + m * wx0 * wy1 * wz1 
-        density(ix+1, iy+1, iz+1) = density(ix+1, iy+1, iz+1) + m * wx1 * wy1 * wz1
-    
+    d_particles = particles
+  
+
+    d_density = 0.0
+  
+
+    threadsPerBlock = 256
+    blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock
+  
+
+    call particle_to_grid_kernel<<<blocksPerGrid, threadsPerBlock>>>(d_density, d_particles, N, nx, ny, nz)
+  
+
+    density = d_density
+  
+
+    nx_inner = nx / 2
+    ny_inner = ny / 2
+    nz_inner = nz / 2
+  
+    istart = nx / 4 + 1
+    iend = istart + nx_inner - 1
+    jstart = ny / 4 + 1
+    jend = jstart + ny_inner - 1
+    kstart = nz / 4 + 1
+    kend = kstart + nz_inner - 1
+  
+    density_full = 0.0
+  
+    do k = kstart, kend
+      kd = k - kstart + 1
+      do j = jstart, jend
+        jd = j - jstart + 1
+        do i = istart, iend
+          id = i - istart + 1
+          density_full(i, j, k) = density(id, jd, kd)
+        end do
+      end do
     end do
 
+    !output to csv
+  
     open(unit = 10, file='densityfield.csv', status="replace", action="write")
 
     write(10, '(A)') "x,y,z,density"
 
     do k = 1, nz
-        z = (k - 1.0) * dz
+        z = k
         do j = 1, ny
-            y = (j - 1.0) * dy
+            y = j
             do i = 1, nx
-                x = (i - 1.0) * dx
-                write(10, '(F8.3, ",", F8.3, ",", F8.3, ",", F10.5)') x, y, z, density(i, j, k)
+                x = i
+                write(10, '(F8.3, ",", F8.3, ",", F8.3, ",", F20.8)') x, y, z, density_full(i, j, k)
             end do
         end do
     end do
 
     close(10)
 
-end subroutine particle_to_grid
+    open(unit = 10, file='densityfield2.csv', status="replace", action="write")
+
+    write(10, '(A)') "x,y,z,density"
+
+    do k = 1, nz/2
+        z = k
+        do j = 1, ny/2
+            y = j
+            do i = 1, nx/2
+                x = i
+                write(10, '(F8.3, ",", F8.3, ",", F8.3, ",", F20.8)') x, y, z, density(i, j, k)
+            end do
+        end do
+    end do
+
+    close(10)
+  
+  end subroutine particle_to_grid
+  
+  attributes(global) subroutine particle_to_grid_kernel(d_density, d_particles, N, nx, ny, nz)
+    use cudafor
+    implicit none
+    integer, value :: N, nx, ny, nz
+    real, device :: d_density(nx/2, ny/2, nz/2)
+    real, device :: d_particles(9, N)
+  
+    integer :: idx
+    integer :: ix, iy, iz
+    real :: x, y, z, m
+    real :: x_rel, y_rel, z_rel
+    real :: wx0, wx1, wy0, wy1, wz0, wz1
+    real :: x_min, y_min, z_min, x_max, y_max, z_max, delta, delta_z
+    real :: x_i, y_j, z_k
+  
+    idx = threadIdx%x + (blockIdx%x - 1) * blockDim%x
+  
+    if (idx <= N) then
+      m = 1.0  ! Assign mass to each particle
+  
+      x = d_particles(1, idx)
+      y = d_particles(2, idx)
+      z = d_particles(3, idx)
+  
+      x_min = -1.5
+      x_max = 1.5
+      y_min = -1.5
+      y_max = 1.5
+      z_min = -1.5
+      z_max = 1.5
+      delta = (x_max - x_min) / ((nx/2)-1)
+      delta_z = (z_max - z_min) / ((nz/2)-1)
+  
+
+      if (x >= x_min .and. x <= x_max .and. y >= y_min .and. y <= y_max .and. z >= z_min .and. z <= z_max) then
+        ix = int(floor((x - x_min) / delta)) + 1
+        iy = int(floor((y - y_min) / delta)) + 1
+        iz = int(floor((z - z_min) / delta_z)) + 1
+  
+
+        ix = max(1, min(ix, nx/2 - 1))
+        iy = max(1, min(iy, ny/2 - 1))
+        iz = max(1, min(iz, nz/2 - 1))
+  
+        x_i = x_min + (ix - 1) * delta
+        y_j = y_min + (iy - 1) * delta
+        z_k = z_min + (iz - 1) * delta_z
+  
+
+        x_rel = (x - x_i) / delta
+        y_rel = (y - y_j) / delta
+        z_rel = (z - z_k) / delta_z
+  
+
+        wx0 = 1.0 - x_rel
+        wx1 = x_rel
+        wy0 = 1.0 - y_rel
+        wy1 = y_rel
+        wz0 = 1.0 - z_rel
+        wz1 = z_rel
+  
+
+        call atomicAdd(d_density(ix, iy, iz), m * wx0 * wy0 * wz0)
+        call atomicAdd(d_density(ix+1, iy, iz), m * wx1 * wy0 * wz0)
+        call atomicAdd(d_density(ix, iy+1, iz), m * wx0 * wy1 * wz0)
+        call atomicAdd(d_density(ix+1, iy+1, iz), m * wx1 * wy1 * wz0)
+        call atomicAdd(d_density(ix, iy, iz+1), m * wx0 * wy0 * wz1)
+        call atomicAdd(d_density(ix+1, iy, iz+1), m * wx1 * wy0 * wz1)
+        call atomicAdd(d_density(ix, iy+1, iz+1), m * wx0 * wy1 * wz1)
+        call atomicAdd(d_density(ix+1, iy+1, iz+1), m * wx1 * wy1 * wz1)
+      end if
+    end if
+  end subroutine particle_to_grid_kernel
  
 program nbody_sim
     implicit none
