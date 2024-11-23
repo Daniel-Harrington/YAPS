@@ -363,10 +363,10 @@ module device_ops
         !******************************
 
         ! keep in mind, but avoiding the copy for such a huge
-        ! set of 100M particles
-        ! x = particles(1:3,:)
-        ! v = particles(4:6,:)
-        ! a = particles(7:9,:)
+        ! set of 100M particles on device
+        ! x = particles_d(1:3,:)
+        ! v = particles_d(4:6,:)
+        ! a = particles_d(7:9,:)
 
         ! note for other guys, i think remember <= here since fortran arrays are inclusive of N
         if (i<= N) then:
@@ -1083,7 +1083,7 @@ program nbody_sim
     print*, 'Got past initialization'
 
 
-    !call<<256,256>>particle_to_grid(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz)
+    call<<256,256>>particle_to_grid_cuda(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz)
     print*, 'Got past particle to grid'
 
     !call check_energy(density,nx,ny,nz,particles,N,smbh_m,E_0)
@@ -1091,12 +1091,12 @@ program nbody_sim
 
     do i=1, 1000
         ! These 2 will go inside a do loop until end condition
-        !call<<256,256>>particle_to_grid(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz)
-
+        call<<256,256>>particle_to_grid_cuda(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz)
 
         print*, 'Got past particle to grid'
         ! add an if for however many steps 
-        !call check_energy(density,nx,ny,nz,particles,N,smbh_m,E)
+        ! again, like fft stays on gpu but composes with a fft call
+        call check_energy(density,nx,ny,nz,particles,N,smbh1_m,smbh2_m,E)
         print*, 'Got past second energy check'
 
 
