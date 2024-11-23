@@ -515,7 +515,7 @@ module device_ops
 
         !thread and block indecies 
         integer :: i,ix,iy,iz,ix_shifted,iy_shifted,iz_shifted,thread_id
-        real(kind(0.0)) :: x,y,z,smbh1_m,smbh2_m
+        real(kind(0.0)) :: x,y,z,smbh1_m,smbh2_m,m
         real(kind(0.0)) :: x_rel,y_rel,z_rel
         real(kind(0.0)) :: wx0, wx1, wy0, wy1, wz0, wz1
         real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, x_i, y_j, z_k
@@ -531,7 +531,7 @@ module device_ops
         delta = (x_max - x_min) / real(nx/2 - 1)
 
         ! Compte global thread ID
-        thread_id = (blockIdx%x - 1) * blockDmin%x + threadIdx%x_i
+        thread_id = (blockIdx%x - 1) * blockDmin%x + threadIdx%x
         if (thread_id > N) return 
 
         ! Read particle positons 
@@ -566,8 +566,8 @@ module device_ops
         if (iz >= nz / 2) iz = nz / 2 - 1
 
         x_i = x_min + (ix - 1) * delta
-        y_i = y_min + (iy - 1) * delta
-        z_i = z_min + (iz - 1) * delta
+        y_j = y_min + (iy - 1) * delta
+        z_k = z_min + (iz - 1) * delta
         
         ! Calculate relative distances
         x_rel = (x - x_i) / delta
@@ -589,7 +589,7 @@ module device_ops
 
         ix_shifted = ix+nx/4
         iy_shifted = iy+ny/4
-        iz_shifted = iz_nz/4
+        iz_shifted = iz+nz/4
 
         ! Interpolate acceleration from the grid to the particle position
         acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted, iz_shifted) * wx0 * wy0 * wz0
@@ -623,20 +623,7 @@ module device_ops
         particles(7, thread_id) = acc_x
         particles(8, thread_id) = acc_y
         particles(9, thread_id) = acc_z
-    end subroutine 
-
-
-
-
-
-
-
-            
-
-
-
-
-
+    end subroutine grid_to_particle_cuda 
 
 end module device_ops
     
