@@ -276,14 +276,14 @@ module device_ops
         call syncthreads
     end subroutine compute_accelerations
     
-    attributes(global) subroutine normalize3d(arr,nx,ny,nz,factor)
+    attributes(global) subroutine normalize3d(arr,nx,ny,nz,maximum)
         implicit none
-        integer::nx,ny,nz
-
+        integer::nx,ny,nz, maximum
         real, dimension(nx,ny,nz)::arr
         integer::i,j,K
-        real:: factor
-
+        
+        real::factor
+        factor = 1/maximum
         i = (blockIdx%x-1)*blockDim%x + threadIdx%x
         j = (blockIdx%y-1)*blockDim%y + threadIdx%y
         k = (blockIdx%z-1)*blockDim%z + threadIdx%z
@@ -630,20 +630,6 @@ module device_ops
         particles(8, thread_id) = acc_y
         particles(9, thread_id) = acc_z
     end subroutine 
-
-
-
-
-
-
-
-            
-
-
-
-
-
-
 end module device_ops
     
 
@@ -753,7 +739,8 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     ! TODO: Check im not crazy and i should be using N
 
     ! Apply factor ONLY to the acceleration dimensions not the index ones
-    call normalize3d<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_r_d,nx_d,ny_d,nz_d,1/N_d)
+    
+    call normalize3d<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_r_d,nx_d,ny_d,nz_d,N_d)
     
     !Destroy Plan
     call cufftDestroy(plan)
