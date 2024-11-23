@@ -90,7 +90,6 @@ end module cufft_interface
     
 
 
-subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N,smbh1_m,smbh2_m,E)
 subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_d,particles_d,N_d,m_d,smbh1_m_d,smbh2_m_d,E)
     !###########################################################
     ! Instructions:
@@ -120,25 +119,18 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_
     !   Host Initializations
     !#########################
     
-    integer,intent(in)::  nx,ny,nz,N
-    ! I can operate in place on the density grid since it needs to be
-    ! recomputed anyways, this way avoids creating another huge 3d array of grid_dim^3 cells
-    ! atleast on the cpu
-    
-    real, Dimension(9,N)::particles_d
-    real, Dimension(3):: v_i
+    integer,intent(in)::  nx,ny,nz
+   
 
-    ! Energy compute_accelerationsulation 
+    ! Energy compute_acceleration
     real::U,E,KE
-    real::U,KE,E
     
     integer::V
 
      ! Constants
 
     real,parameter:: pi = atan(1.0)*4 
-    real::m,smbh1_m,smbh2_m
-   
+
     real :: G = 1 ! Natural Units
 
     ! Iteration
@@ -184,10 +176,8 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_
 
     U=0.0
     KE = 0.0
-    call calculate_U<<<256,256>>>(density_grid_c_d,nx,ny,nz,U)
+    call calculate_U<<<256,256>>>(density_grid_c_d,nx_d,ny_d,nz_d,U_d)
 
-    m = 1/N
-    call calculate_KE<<<256,256>>>(particles_d,N,m,smbh1_m,smbh2_m)
  
     call calculate_KE<<<256,256>>>(particles_d,N_d,m_d,smbh1_m_d,smbh2_m_d,KE_d)
     !Destroy Plan
@@ -251,7 +241,7 @@ module device_ops
         del_ky = 2*pi/ny
         del_kz = 2*pi/nz
 
-        if (k_x <= nx .and. k_y<=ny .and. k_z < (nz/2 +1)) then
+        if (k_x <= nx .and. k_y<=ny .and. k_z <= (nz/2 +1)) then
                 ! Splitting positive and negative frequencies for x-y equivalents
                 if (k_x < nx/2) then
                     k1 = del_kx*k_x
@@ -285,7 +275,23 @@ module device_ops
             endif
         call syncthreads
     end subroutine compute_accelerations
-      
+    
+    attributes(global) subroutine normalize3d(arr,nx,ny,nz,factor)
+        implicit none
+        integer::nx,ny,nz
+
+        real, dimension(nx,ny,nz)::arr
+        integer::i,j,K
+        real:: factor
+
+        i = (blockIdx%x-1)*blockDim%x + threadIdx%x
+        j = (blockIdx%y-1)*blockDim%y + threadIdx%y
+        k = (blockIdx%z-1)*blockDim%z + threadIdx%z
+
+        if ( k <= nx .and. j<=ny .and. k <= nz) then
+            arr(i,j,k) = arr(i,j,k) *factor
+        endif
+    end subroutine
     attributes(global) subroutine calculate_U(density_grid_c_d,nx,ny,nz,U)
         implicit none
         complex, Dimension(:,:,:):: density_grid_c_d
@@ -661,9 +667,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
 
    
 
-    ! Normalization Factor
   
-    real:: factor
 
     ! Cuda Variables for plan process
     !cufftHandle plan identifier and error
@@ -673,8 +677,14 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     !   Device Initializations
     !#########################
 
+
+    ! Normalization Factor
+
+    real,device:: factor
+
      integer,device::  nx_d,ny_d,nz_d,N_d
     ! Real and complex density on gpu
+
     real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
     complex, Dimension(:,:,:), allocatable,device:: density_grid_c_d
 
@@ -686,9 +696,9 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     integer :: gridDimX, gridDimY, gridDimZ
 
     ! Define block dimensions
-    blockDimX = 32
-    blockDimY = 32
-    blockDimZ = 1
+    blockDimX = 16
+    blockDimY = 16
+    blockDimZ = 16
 
     gridDimX = (nx + blockDimX - 1) / blockDimX
     gridDimY = (ny + blockDimY - 1) / blockDimY
@@ -710,7 +720,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     ! 3D R2C Fourier Transform execution
     call cufftExecR2C(plan,density_grid_r_d,density_grid_c_d)
 
-    call compute_accelerations<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_c_d,density_grid_c_d,nx,ny,nz)
+    call compute_accelerations<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_c_d,density_grid_c_d,nx_d,ny_d,nz_d)
 
 
     !#######################################
@@ -728,11 +738,9 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     
 
     ! TODO: Check im not crazy and i should be using N
-    factor = 1/N_d ! precompute to do multiplication instead of division on array ops
 
     ! Apply factor ONLY to the acceleration dimensions not the index ones
-    gravity_grid_r_d(1:3, :, :, :) = gravity_grid_r_d(1:3, :, :, :) *1/N_d 
-
+    call normalize3d<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_r_d,nx_d,ny_d,nz_d,1/N_d)
     
     !Destroy Plan
     call cufftDestroy(plan)
@@ -1149,11 +1157,9 @@ program nbody_sim
     integer, parameter::N = 100000000
     integer, parameter:: nx =512 , ny = 512, nz = 256
     integer:: checkpoint,steps,k,i
-    real:: smbh_1,smbh_2
     real:: m,smbh1_m,smbh2_m,E_0,E
     real, dimension(9,N)::particles
     real, parameter::dt = 10e-5 ! Needed to keep Energy change way below 10^-5
-    real:: E_0,E,Rm,Vm,t_c,curr_time,Rm_0,anim_time, dx, dy, dz, density(nx, ny, nz)
     real,dimension(3)::p
     logical::animate
     integer:: particle_to_track = 50
@@ -1163,7 +1169,6 @@ program nbody_sim
     ! DEVICE MEMORY SETUP
     ! #######################################
     ! Particles on GPU
-    real, Dimension(:,:)::particles_d
     real, Dimension(:,:),allocatable, device::particles_d
     real,device::dt_d,nx_d,ny_d,nz_d,m_d,smbh1_m_d,smbh2_m_d,dx,dy,dz
     integer,device:: N_d
@@ -1199,8 +1204,12 @@ program nbody_sim
     !   HOST(CPU) INITIALIZATIONS
     !
     !##############################################
-    smbh1_m = 1
-    smbh2_m = 1
+
+    
+    call initialize_particles2(particles,N,1)
+
+    smbh1_m = 1.0  ! just set to whatever it is
+    smbh2_m = smbh1_m/10
     m = 1/N
     E = 0
     !##############################################
@@ -1220,12 +1229,6 @@ program nbody_sim
     dz = 1.0/(nz-1)
     dt_d = dt
 
-    smbh_m = 1.0  ! just set to whatever it is
-    smbh_m2 = smbh_m/10
-    animate = .true.
-    checkpoint = 10 !s
-    
-    call initialize_particles2(particles,N,1)
 
     ! copy particles from host to device memory
     particles_d = particles
@@ -1250,7 +1253,7 @@ program nbody_sim
         print*, 'Got past particle to grid'
         ! add an if for however many steps 
         ! again, like fft stays on gpu but composes with a fft call
-        call check_energy(density,nx,ny,nz,particles,N,smbh1_m,smbh2_m,E)
+        call check_energy(density_grid_r_d,nx,ny,nz,particles,N,smbh1_m,smbh2_m,E)
         print*, 'Got past second energy check'
 
 
