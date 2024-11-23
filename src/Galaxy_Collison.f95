@@ -90,7 +90,7 @@ end module cufft_interface
     
 
 
-subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N,smbh1_m,smbh2_m,E)
+subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_d,particles_d,N_d,smbh1_m_d,smbh2_m_d,E)
     !###########################################################
     ! Instructions:
     !      This function is NON Desctructive, ie not operating
@@ -102,6 +102,7 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
     !      pass in the supermassive black holes mass
     !      into smbh_m
     !
+    !      Anything with a _d it the device allocation coutnerpart, same typing
     !       density_grid : real(nx,ny,nz)
     !            nx,ny,nz      : int,int, N
     !           particles      : real(9,N)
@@ -119,14 +120,12 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
     !   Host Initializations
     !#########################
     
-    integer,intent(in)::  nx,ny,nz,N
     ! I can operate in place on the density grid since it needs to be
     ! recomputed anyways, this way avoids creating another huge 3d array of grid_dim^3 cells
     ! atleast on the cpu
     
-    real, Dimension(9,N)::particles_d
-    real, Dimension(3):: v_i
-
+   
+    integer,intent(in):: nx,ny,nz
     ! Energy compute_accelerationsulation 
     real::U,KE
     
@@ -135,7 +134,6 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
      ! Constants
 
     real,parameter:: pi = atan(1.0)*4 
-    real::m,smbh1_m,smbh2_m
    
 
     ! Iteration
@@ -148,10 +146,13 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
     !###################################
     !   Device Initialization
     !################################### 
-    real, device :: U_d,KE_d   
+    integer,device:: nx_d,ny_d,nz_d,N
+    real, device :: U_d,KE_d,m,smbh1_m,smbh2_m
+    real, Dimension(9,N),device::particles_d
     real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
     complex(fp_kind), Dimension(:,:,:), allocatable,device:: density_grid_c_d
     call cudaSetDevice(0)
+
 
 
 
@@ -182,18 +183,14 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
 
     ! Reset U,KE
 
-    allocate(U_d)
-    allocate(KE_d)
-
-
     ! initialize on device to 0
     U_d = 0.0
     KE_d = 0.0
 
-    call calculate_U<<<256,256>>>(density_grid_c_d,nx,ny,nz,U)
+    call calculate_U<<<256,256>>>(density_grid_c_d,nx_d,ny_d,nz_d,U_d)
 
     m = 1/N
-    call calculate_KE<<<256,256>>>(particles_d,N,m,smbh1_m,smbh2_m,KE)
+    call calculate_KE<<<256,256>>>(particles_d,N_d,m,smbh1_m,smbh2_m,KE_d)
     !Destroy Plan
     call cufftDestroy(plan)
 
@@ -573,7 +570,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     ! Real and complex gravities on gpu
     complex, Dimension(:,:,:,:), allocatable,device:: gravity_grid_c_d
     real, Dimension(:,:,:,:), allocatable, device :: gravity_grid_r_d
-
+    
     integer :: blockDimX, blockDimY, blockDimZ
     integer :: gridDimX, gridDimY, gridDimZ
 
@@ -1039,18 +1036,27 @@ program nbody_sim
     integer, parameter::N = 100000000
     integer, parameter:: nx =512 , ny = 512, nz = 256
     integer:: checkpoint,steps,k,i
-    real:: smbh_m
+    real:: smbh1_m,smbh2_m
     real, dimension(9,N)::particles
     real, parameter::dt = 10e-5 ! Needed to keep Energy change way below 10^-5
-    real:: E_0,E,Rm,Vm,t_c,curr_time,Rm_0,anim_time, dx, dy, dz, density(nx, ny, nz)
     real,dimension(3)::p
     logical::animate
     integer:: particle_to_track = 50
 
 
+    !##############################################
+    !
+    !   HOST(CPU) INITIALIZATIONS
+    !
+    !##############################################
+    smbh1_m = 1
+    smbh2_m = 1
     ! DEVICE MEMORY SETUP
     ! Particles on GPU
-    real, Dimension(:,:)::particles_d
+    real, Dimension(:,:),allocatable, device::particles_d
+    real,device::dt_d,nx_d,ny_d,nz_d,smbh1_m_d,smbh2_m_d,dx,dy,dz
+    integer,device:: N_d
+
     ! Real and complex density on gpu
     real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
     complex, Dimension(:,:,:), allocatable,device:: density_grid_c_d
@@ -1073,8 +1079,13 @@ program nbody_sim
     ! allocation particles on device
     allocate(particles_d(9,N))
 
-
-
+    ! set all the gpu constants
+    nx_d = nx
+    ny_d = ny
+    nz_d = nz
+    smbh1_m_d = smbh1_m
+    smbh2_m_d = smbh2_m
+    N_d = N
     dx = 1.0/(nx-1)
     dy = 1.0/(ny-1)
     dz = 1.0/(nz-1)
@@ -1095,7 +1106,7 @@ program nbody_sim
     print*, 'Got past initialization'
 
 
-    call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz)
+    call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N_d, nx_d, ny_d, nz_d, dx, dy, dz)
     print*, 'Got past particle to grid'
 
     !call check_energy(density,nx,ny,nz,particles,N,smbh_m,E_0)
@@ -1103,19 +1114,19 @@ program nbody_sim
 
     do i=1, 1000
         ! These 2 will go inside a do loop until end condition
-        call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz)
+        call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N_d, nx_d, ny_d, nz_d, dx, dy, dz)
 
         print*, 'Got past particle to grid'
         ! add an if for however many steps 
         ! again, like fft stays on gpu but composes with a fft call
-        call check_energy(density,nx,ny,nz,particles,N,smbh1_m,smbh2_m,E)
+        call check_energy(density_grid_r_d, nx,ny,nz,nx_d, ny_d, nz_d,particles_d,N_d,smbh1_m,smbh2_m,E)
         print*, 'Got past second energy check'
 
 
         ! fills the real gravity grid
         ! still stays on gpu
         ! host/cpu - style function is just composing cuda kernel functions
-        call fft_step(density_grid_r_d,density_grid_r_c,gravity_grid_r_d,gravity_grid_c_d,nx,ny,nx,N)
+        call fft_step(density_grid_r_d,density_grid_r_c,gravity_grid_r_d,gravity_grid_c_d,nx_d, ny_d, nz_d, N_d)
 
         !! here zac call your grid to particles kernel
         !! heres and example you can change dimensions and stuff
