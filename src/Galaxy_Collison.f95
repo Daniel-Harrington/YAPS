@@ -182,10 +182,10 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
 
     U=0.0
     KE = 0.0
-    call<<256,256>>calculate_U(density_grid_c_d,nx,ny,nz,U)
+    call calculate_U<<<256,256>>>c(density_grid_c_d,nx,ny,nz,U)
 
     m = 1/N
-    call<<256,256>>calculate_KE(particles_d,N,m,smbh1_m,smbh2_m)
+    call calculate_KE<<<256,256>>>(particles_d,N,m,smbh1_m,smbh2_m)
     !Destroy Plan
     call cufftDestroy(plan)
 
@@ -1083,7 +1083,7 @@ program nbody_sim
     print*, 'Got past initialization'
 
 
-    call<<256,256>>particle_to_grid_cuda(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz)
+    call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz)
     print*, 'Got past particle to grid'
 
     !call check_energy(density,nx,ny,nz,particles,N,smbh_m,E_0)
@@ -1091,7 +1091,7 @@ program nbody_sim
 
     do i=1, 1000
         ! These 2 will go inside a do loop until end condition
-        call<<256,256>>particle_to_grid_cuda(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz)
+        call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz)
 
         print*, 'Got past particle to grid'
         ! add an if for however many steps 
@@ -1112,12 +1112,23 @@ program nbody_sim
         ! integration step pushes all positions
         ! ill need to revisit thread count block size just going quick
         ! to get structure
-        call<<256,256>>integration_step(particles_d,N,dt)
+        call integration_step<<<256,256>>>(particles_d,N,dt)
         print*, "Done step: ", i
 
-    
-    end do
+        ! need a step to [pass back & write out
 
-    ! need a step to write out
+    end do
+    ! Deallocations
+
+
+    !deallocate density grids
+    deallocate(density_grid_r_d,density_grid_c_d)
+    
+
+    ! deallocate gravity grids
+    deallocate(gravity_grid_r_d,gravity_grid_c_d)
+
+    ! deallocate particles
+    allocate(particles_d)
  
 end program nbody_sim 
