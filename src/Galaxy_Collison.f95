@@ -401,6 +401,7 @@ subroutine fft_step(density_grid,nx,ny,nz,particles,N)
     ! atleast on the cpu
     real, Dimension( nx,ny,nz) :: density_grid
     real, Dimension( 3,nx,ny,nz) :: gravity_grid
+
     real, Dimension(9,N)::particles
 
     ! Constants
@@ -458,6 +459,9 @@ subroutine fft_step(density_grid,nx,ny,nz,particles,N)
     !   Forward FFT
     !#######################################
 
+    allocate(density_grid_pinned(nx, ny, nz))
+    density_grid_pinned = density_grid  ! Copy data to pinned memory
+    
 
     ! Allocate input and output arrays on the device memory (gpu)
     allocate(density_grid_r_d(nx,ny,nz))
@@ -944,34 +948,34 @@ subroutine grid_to_particle(acceleration_grid,particles, N, nx, ny, nz, dx, dy, 
 
     end subroutine grid_to_particle
 
-subroutine track_a_particle(particle_id, timestep,filename)
+! subroutine track_a_particle(particle_id, timestep,filename)
 
-    integer :: particle_id 
-    real, dimension(9,:), intent(in) :: particles 
-    integer, intent(in) :: timestep
-    real :: x,y,Z
-    real :: x,y,z
+!     integer :: particle_id 
+!     real, dimension(9,:), intent(in) :: particles 
+!     integer, intent(in) :: timestep
+!     real :: x,y,z
+!     real :: vx,vy,vz
     
-    !Extract particles's position and velocity 
-    x = particles(1,particle_id)
-    y = particles(2,particle_id)
-    Z = particles(3,particle_id)
-    vx = particles(4,particle_id)
-    vy = particles(5,particle_id)
-    vz = particles(6,particle_id)
+!     !Extract particles's position and velocity 
+!     x = particles(1,particle_id)
+!     y = particles(2,particle_id)
+!     Z = particles(3,particle_id)
+!     vx = particles(4,particle_id)
+!     vy = particles(5,particle_id)
+!     vz = particles(6,particle_id)
 
-    !open the file 
-    open(20, file="track_particle.csv", status="unknown", action="write")
+!     !open the file 
+!     open(20, file="track_particle.csv", status="unknown", action="write")
 
-    !Write to file
-    if (timestep==0) then 
-        write(20, '(A)') "timestep,x,y,z,vx,vy,vz"  ! Write header
-    end if 
-    write write(20, '(I8, 6(F12.6, ","))') timestep, x, y, z, vx, vy, vz
+!     !Write to file
+!     if (timestep==0) then 
+!         write(20, '(A)') "timestep,x,y,z,vx,vy,vz"  ! Write header
+!     end if 
+!     write write(20, '(I8, 6(F12.6, ","))') timestep, x, y, z, vx, vy, vz
 
-    !close file 
-    close(20)
-end subroutine Track_a_particle 
+!     !close file 
+!     close(20)
+! end subroutine Track_a_particle 
 
 program nbody_sim
     use precision
@@ -987,6 +991,11 @@ program nbody_sim
     real,dimension(3)::p
     logical::animate
     integer:: particle_to_track = 50
+
+
+    ! DEVICE MEMORY SETUP
+
+    real::
 
     dx = 1.0/(nx-1)
     dy = 1.0/(ny-1)
@@ -1010,12 +1019,12 @@ program nbody_sim
         ! These 2 will go inside a do loop until end condition
         !call particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
 
-    ! These 2 will go inside a do loop until end condition
-    call particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
-    print*, 'Got past particle to grid'
-    ! add an if for however many steps 
-    call check_energy(density,nx,ny,nz,particles,N,smbh_m,E)
-    print*, 'Got past second energy check'
+        ! These 2 will go inside a do loop until end condition
+        !call particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
+        print*, 'Got past particle to grid'
+        ! add an if for however many steps 
+        !call check_energy(density,nx,ny,nz,particles,N,smbh_m,E)
+        print*, 'Got past second energy check'
 
         call integration_step(density, nx, ny, nz, particles, N, dt)
         print*, "Done step: ", i
