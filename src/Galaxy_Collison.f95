@@ -149,7 +149,6 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_
     real, Dimension(:,:),allocatable,device::particles_d
     real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
     complex(fp_kind), Dimension(:,:,:), allocatable,device:: density_grid_c_d
-    call cudaSetDevice(0)
 
 
 
@@ -705,7 +704,6 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     gridDimZ = ((nz/2 +1) + blockDimZ - 1) / blockDimZ
 
 
-    call cudaSetDevice(0)
     
     !#######################################
     !   Forward FFT
@@ -1218,6 +1216,8 @@ program nbody_sim
     !   Device(GPU) INITIALIZATIONS
     !
     !##############################################
+    
+    call cudaSetDevice(0)
     nx_d = nx
     ny_d = ny
     nz_d = nz
