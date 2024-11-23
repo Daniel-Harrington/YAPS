@@ -91,6 +91,7 @@ end module cufft_interface
 
 
 subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N,smbh1_m,smbh2_m,E)
+subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_d,particles_d,N_d,m_d,smbh1_m_d,smbh2_m_d,E)
     !###########################################################
     ! Instructions:
     !      This function is NON Desctructive, ie not operating
@@ -129,6 +130,8 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
 
     ! Energy compute_accelerationsulation 
     real::U,E,KE
+    real::U,KE,E
+    
     integer::V
 
      ! Constants
@@ -136,6 +139,7 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
     real,parameter:: pi = atan(1.0)*4 
     real::m,smbh1_m,smbh2_m
    
+    real :: G = 1 ! Natural Units
 
     ! Iteration
     integer::i
@@ -147,6 +151,10 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
     !###################################
     !   Device Initialization
     !###################################    
+    !################################### 
+    integer,device:: nx_d,ny_d,nz_d,N_d
+    real, device :: U_d,KE_d,m_d,smbh1_m_d,smbh2_m_d
+    real, Dimension(:,:),allocatable,device::particles_d
     real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
     complex(fp_kind), Dimension(:,:,:), allocatable,device:: density_grid_c_d
     call cudaSetDevice(0)
@@ -171,12 +179,6 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
  
     ! get Volume of cube
     V = nx*ny*nz
-    
-    ! From dividing a full 2pi wave over the length of each cell
-    ! we get these deltas https://en.wikipedia.org/wiki/Wave_vector#Definition
-    del_kx =  2*pi/nx
-    del_ky = 2*pi/ny
-    del_kz = 2*pi/nz
 
     ! Reset U,KE
 
@@ -186,6 +188,8 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
 
     m = 1/N
     call calculate_KE<<<256,256>>>(particles_d,N,m,smbh1_m,smbh2_m)
+ 
+    call calculate_KE<<<256,256>>>(particles_d,N_d,m_d,smbh1_m_d,smbh2_m_d,KE_d)
     !Destroy Plan
     call cufftDestroy(plan)
 
@@ -350,11 +354,12 @@ module device_ops
             endif
         call syncthreads
     end subroutine calculate_U
-    attributes(global) subroutine integration_step(particles_d, N, dt)
+    attributes(global) subroutine integration_step(particles_d, N_d, dt_d)
         implicit none
-        integer :: i
+        integer :: i,N_d
         real, dimension(:,:) :: particles_d
-        real :: dt
+        real :: dt_d
+    
 
         i = (blockIdx%x-1)*blockDim%x + threadIdx%x
 
@@ -369,15 +374,15 @@ module device_ops
         ! a = particles_d(7:9,:)
 
         ! note for other guys, i think remember <= here since fortran arrays are inclusive of N
-        if (i<= N) then:
+        if (i<= N_d) then
             ! kick
-            particles_d(4:6,i) = particles_d(4:6,i) + particles_d(7:9,i)*dt*0.5
+            particles_d(4:6,i) = particles_d(4:6,i) + particles_d(7:9,i)*dt_d*0.5
 
             !drift
-            particles_d(1:3,i) = particles_d(1:3,i)+particles_d(4:6,i)*dt
+            particles_d(1:3,i) = particles_d(1:3,i)+particles_d(4:6,i)*dt_d
 
             !kick
-            particles_d(4:6,i) =particles_d(4:6,i)+particles_d(7:9,i)*dt*0.5
+            particles_d(4:6,i) =particles_d(4:6,i)+particles_d(7:9,i)*dt_d*0.5
 
         endif
 
@@ -388,39 +393,33 @@ module device_ops
         integer::N
         real:: m,smbh1_m,smbh2_m
 
+        real:: KE
+        real,dimension(3),device::v_i
         i = (blockIdx%x-1)*blockDim%x + threadIdx%x
         
 
+        if (i==1) then
+            
+            ! Add KE for Supermassive seperately 
+            ! assuming it is particle 1 (index 1)
 
-        ! Add KE for Supermassive seperately 
-        ! assuming it is particle 1 (index 1)
-
-        ! get velocities
-        v_i = particles(4:6,1)
-        KE = KE + smbh1_m* 0.5* sum(v_i**2)
-
-        
-        ! Add KE for Supermassive seperately 
-        ! assuming it is particle 2 (index 2)
-        ! get velocities
-        v_i = particles(4:6,2)
-        KE = KE + smbh2_m* 0.5* sum(v_i**2)
-        ! get KE 
-        do i=2,N
-           
-        end do
-        
-        if (i==1) then:
-        
-        else if(i==2)then:
-
-        else if (i<=N)
+            ! get velocities
+            v_i = particles_d(4:6,1)
+            KE = KE + smbh1_m* 0.5* sum(v_i**2)
+        else if(i==2)then
+            ! Add KE for Supermassive seperately 
+            ! assuming it is particle 2 (index 2)
+            ! get velocities
+            v_i = particles_d(4:6,2)
+            KE = KE + smbh2_m* 0.5* sum(v_i**2)
+        else if (i<=N) then
             ! get velocities
 
             v_i = particles_d(4:6,i)
 
             KE = KE + m* 0.5* sum(v_i**2)
         
+        endif
     end subroutine calculate_KE
     ! A in works Subroutine that does particle to gid on GPU
     attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
@@ -643,7 +642,7 @@ end module device_ops
     
 
 
-subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_grid_c_d,nx,ny,nz,N)
+subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_d,N_d)
     !###########################################################
     ! Instructions:
     !      Pass in a density grid to fill density_grid
@@ -671,8 +670,9 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     !   and cufft functions
     !###########################
     
+    integer,intent(in)::  nx,ny,nz
 
-    integer,intent(in)::  nx,ny,nz,N
+   
 
     ! Normalization Factor
   
@@ -686,7 +686,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     !   Device Initializations
     !#########################
 
-    
+     integer,device::  nx_d,ny_d,nz_d,N_d
     ! Real and complex density on gpu
     real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
     complex, Dimension(:,:,:), allocatable,device:: density_grid_c_d
@@ -739,10 +739,12 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     ! print*, gravity_grid
     ! Normalize Gravity Cube in real space(divide by N/)
     
-    factor = 1/N ! precompute to do multiplication instead of division on array ops
+
+    ! TODO: Check im not crazy and i should be using N
+    factor = 1/N_d ! precompute to do multiplication instead of division on array ops
 
     ! Apply factor ONLY to the acceleration dimensions not the index ones
-    gravity_grid_r_d(1:3, :, :, :) = gravity_grid_r_d(1:3, :, :, :) * factor
+    gravity_grid_r_d(1:3, :, :, :) = gravity_grid_r_d(1:3, :, :, :) *1/N_d 
 
     
     !Destroy Plan
@@ -1161,6 +1163,7 @@ program nbody_sim
     integer, parameter:: nx =512 , ny = 512, nz = 256
     integer:: checkpoint,steps,k,i
     real:: smbh_1,smbh_2
+    real:: m,smbh1_m,smbh2_m,E_0,E
     real, dimension(9,N)::particles
     real, parameter::dt = 10e-5 ! Needed to keep Energy change way below 10^-5
     real:: E_0,E,Rm,Vm,t_c,curr_time,Rm_0,anim_time, dx, dy, dz, density(nx, ny, nz)
@@ -1169,9 +1172,15 @@ program nbody_sim
     integer:: particle_to_track = 50
 
 
+    ! ############################################
     ! DEVICE MEMORY SETUP
+    ! #######################################
     ! Particles on GPU
     real, Dimension(:,:)::particles_d
+    real, Dimension(:,:),allocatable, device::particles_d
+    real,device::dt_d,nx_d,ny_d,nz_d,m_d,smbh1_m_d,smbh2_m_d,dx,dy,dz
+    integer,device:: N_d
+
     ! Real and complex density on gpu
     real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
     complex, Dimension(:,:,:), allocatable,device:: density_grid_c_d
@@ -1180,6 +1189,7 @@ program nbody_sim
     complex, Dimension(:,:,:,:), allocatable,device:: gravity_grid_c_d
     real, Dimension(:,:,:,:), allocatable, device :: gravity_grid_r_d
 
+    
     ! Allocate input and output arrays of cufft on the device memory (gpu)
     allocate(density_grid_r_d(nx,ny,nz))
     
@@ -1196,9 +1206,32 @@ program nbody_sim
 
 
 
+    
+    !##############################################
+    !
+    !   HOST(CPU) INITIALIZATIONS
+    !
+    !##############################################
+    smbh1_m = 1
+    smbh2_m = 1
+    m = 1/N
+    E = 0
+    !##############################################
+    !
+    !   Device(GPU) INITIALIZATIONS
+    !
+    !##############################################
+    nx_d = nx
+    ny_d = ny
+    nz_d = nz
+    smbh1_m_d = smbh1_m
+    smbh2_m_d = smbh2_m
+    m_d = m
+    N_d = N
     dx = 1.0/(nx-1)
     dy = 1.0/(ny-1)
     dz = 1.0/(nz-1)
+    dt_d = dt
 
     smbh_m = 1.0  ! just set to whatever it is
     smbh_m2 = smbh_m/10
@@ -1237,7 +1270,7 @@ program nbody_sim
         ! fills the real gravity grid
         ! still stays on gpu
         ! host/cpu - style function is just composing cuda kernel functions
-        call fft_step(density_grid_r_d,density_grid_r_c,gravity_grid_r_d,gravity_grid_c_d,nx,ny,nx,N)
+        call fft_step(density_grid_r_d,density_grid_r_d,gravity_grid_r_d,gravity_grid_c_d, nx,ny,nz,nx_d, ny_d, nz_d, N_d)
 
         !! here zac call your grid to particles kernel
         !! heres and example you can change dimensions and stuff
@@ -1246,7 +1279,7 @@ program nbody_sim
         ! integration step pushes all positions
         ! ill need to revisit thread count block size just going quick
         ! to get structure
-        call integration_step<<<256,256>>>(particles_d,N,dt)
+        call integration_step<<<256,256>>>(particles_d,N_d,dt_d)
         print*, "Done step: ", i
 
         ! need a step to [pass back & write out
@@ -1263,6 +1296,6 @@ program nbody_sim
     deallocate(gravity_grid_r_d,gravity_grid_c_d)
 
     ! deallocate particles
-    allocate(particles_d)
+    deallocate(particles_d)
  
 end program nbody_sim 
