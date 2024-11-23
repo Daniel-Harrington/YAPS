@@ -128,7 +128,8 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
     real, Dimension(3):: v_i
 
     ! Energy compute_accelerationsulation 
-    real::U,E,KE
+    real::U,KE
+    
     integer::V
 
      ! Constants
@@ -146,7 +147,8 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
 
     !###################################
     !   Device Initialization
-    !###################################    
+    !################################### 
+    real, device :: U_d,KE_d   
     real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
     complex(fp_kind), Dimension(:,:,:), allocatable,device:: density_grid_c_d
     call cudaSetDevice(0)
@@ -180,16 +182,24 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
 
     ! Reset U,KE
 
-    U=0.0
-    KE = 0.0
+    allocate(U_d)
+    allocate(KE_d)
+
+
+    ! initialize on device to 0
+    U_d = 0.0
+    KE_d = 0.0
+
     call calculate_U<<<256,256>>>(density_grid_c_d,nx,ny,nz,U)
 
     m = 1/N
-    call calculate_KE<<<256,256>>>(particles_d,N,m,smbh1_m,smbh2_m)
+    call calculate_KE<<<256,256>>>(particles_d,N,m,smbh1_m,smbh2_m,KE)
     !Destroy Plan
     call cufftDestroy(plan)
 
-    U = (2*pi*G/V)*U
+    U = U_d
+    KE = KE_d
+    U = (2*pi*G/V)*U    
 
     
     ! combine energies
@@ -287,6 +297,7 @@ module device_ops
         complex, Dimension(:,:,:):: density_grid_c_d
         real,parameter:: pi = atan(1.0)*4 
         integer,value::  nx,ny,nz
+        
 
         ! Iteration
         integer::k_x,k_y,k_z
@@ -387,6 +398,7 @@ module device_ops
         real, dimension(:,:) :: particles_d
         integer::N
         real:: m,smbh1_m,smbh2_m
+        real:: KE
 
         i = (blockIdx%x-1)*blockDim%x + threadIdx%x
         
