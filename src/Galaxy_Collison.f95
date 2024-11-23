@@ -182,7 +182,7 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
 
     U=0.0
     KE = 0.0
-    call calculate_U<<<256,256>>>c(density_grid_c_d,nx,ny,nz,U)
+    call calculate_U<<<256,256>>>(density_grid_c_d,nx,ny,nz,U)
 
     m = 1/N
     call calculate_KE<<<256,256>>>(particles_d,N,m,smbh1_m,smbh2_m)
