@@ -249,7 +249,7 @@ module device_ops
         del_ky = 2*pi/ny
         del_kz = 2*pi/nz
 
-        if (k_x <= nx .and. k_y<=ny .and. k_z < (nz/2 +1)) then
+        if (k_x <= nx .and. k_y<=ny .and. k_z <= (nz/2 +1)) then
                 ! Splitting positive and negative frequencies for x-y equivalents
                 if (k_x < nx/2) then
                     k1 = del_kx*k_x
@@ -283,7 +283,23 @@ module device_ops
             endif
         call syncthreads
     end subroutine compute_accelerations
-      
+    
+    attributes(global) subroutine normalize3d(arr,nx,ny,nz,factor)
+        implicit none
+        integer::nx,ny,nz
+
+        real, dimension(nx,ny,nz)::arr
+        integer::i,j,K
+        real:: factor
+
+        i = (blockIdx%x-1)*blockDim%x + threadIdx%x
+        j = (blockIdx%y-1)*blockDim%y + threadIdx%y
+        k = (blockIdx%z-1)*blockDim%z + threadIdx%z
+
+        if ( k <= nx .and. j<=ny .and. k <= nz) then
+            arr(i,j,k) = arr(i,j,k) *factor
+        endif
+    end subroutine
     attributes(global) subroutine calculate_U(density_grid_c_d,nx,ny,nz,U)
         implicit none
         complex, Dimension(:,:,:):: density_grid_c_d
@@ -539,9 +555,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
 
    
 
-    ! Normalization Factor
   
-    real:: factor
 
     ! Cuda Variables for plan process
     !cufftHandle plan identifier and error
@@ -551,8 +565,14 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     !   Device Initializations
     !#########################
 
+
+    ! Normalization Factor
+
+    real,device:: factor
+
      integer,device::  nx_d,ny_d,nz_d,N_d
     ! Real and complex density on gpu
+
     real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
     complex, Dimension(:,:,:), allocatable,device:: density_grid_c_d
 
@@ -564,9 +584,9 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     integer :: gridDimX, gridDimY, gridDimZ
 
     ! Define block dimensions
-    blockDimX = 32
-    blockDimY = 32
-    blockDimZ = 1
+    blockDimX = 16
+    blockDimY = 16
+    blockDimZ = 16
 
     gridDimX = (nx + blockDimX - 1) / blockDimX
     gridDimY = (ny + blockDimY - 1) / blockDimY
@@ -588,7 +608,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     ! 3D R2C Fourier Transform execution
     call cufftExecR2C(plan,density_grid_r_d,density_grid_c_d)
 
-    call compute_accelerations<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_c_d,density_grid_c_d,nx,ny,nz)
+    call compute_accelerations<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_c_d,density_grid_c_d,nx_d,ny_d,nz_d)
 
 
     !#######################################
@@ -606,11 +626,9 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     
 
     ! TODO: Check im not crazy and i should be using N
-    factor = 1/N_d ! precompute to do multiplication instead of division on array ops
 
     ! Apply factor ONLY to the acceleration dimensions not the index ones
-    gravity_grid_r_d(1:3, :, :, :) = gravity_grid_r_d(1:3, :, :, :) *1/N_d 
-
+    call normalize3d<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_r_d,nx_d,ny_d,nz_d,1/N_d)
     
     !Destroy Plan
     call cufftDestroy(plan)
