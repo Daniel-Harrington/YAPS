@@ -801,7 +801,7 @@ subroutine particle_to_grid(density_grid, particles, N, nx, ny, nz, dx, dy, dz)
     !read particle position from initial array
     do i = 1, N
         if (i == 1 .or. i ==2) then 
-            m = 1.0  !assign mass to each particle
+            m = 1000 * N !assign mass to each particle
         else
             m = 1.0
         end if 
@@ -918,10 +918,11 @@ subroutine grid_to_particle(acceleration_grid,particles, N, nx, ny, nz, dx, dy, 
     !read particle position from initial array
     do i = 1, N
         if (i == 1 .or. i ==2) then 
-            m = 1.0  !assign mass to each particle
+            m = 1000 * N  !assign mass to each particle
         else
             m = 1.0
         end if 
+        
         x = particles(1, i)
         y = particles(2, i)
         z = particles(3, i)
