@@ -773,92 +773,119 @@ subroutine initialize_particles(particle_arr,N,Ra)
     close(10)
 end subroutine initialize_particles
 
-subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
-    !
-    ! Returns density grip of all particles
-    ! TODO : dx dy dz allready contained in particles likely unecessary inputs
-    ! can likely be made a bit more concise w vector ops
-    ! Notes:
-    ! Neat use of cycle
-    !
+subroutine particle_to_grid(density_full, particles, N, nx, ny, nz, dx, dy, dz)
     implicit none
     integer, intent(in) :: N, nx, ny, nz
     real, intent(in) :: particles(9, N), dx, dy, dz
-    real, intent(out) :: density(nx, ny, nz)
+    real, intent(out) :: density_full(nx, ny, nz)
+    real :: density(nx/2, ny/2, nz/2)
 
     integer :: i, j, k, ix, iy, iz !particle index and grid indices
-    real :: x, y, z, m
+    real :: x, y, z, m, ux, uy, uz
     real :: x_rel, y_rel, z_rel !relative distance of particle in cell
     real :: wx0, wx1, wy0, wy1, wz0, wz1 !interpolation weights
-    real :: x_min, y_min, z_min, x_lower, y_lower, z_lower
+    real :: x_min, y_min, z_min, x_max, y_max, z_max, delta, x_i, y_j, z_k
+    integer :: nx_inner, ny_inner, nz_inner, kstart, kend, jstart, jend, istart, iend
+    integer :: id, jd, kd
 
     density = 0.0 
-    x_min = -1.0
-    y_min = -1.0
-    z_min = -1.0
+    x_min = -1.5
+    x_max = 1.5
+    y_min = -1.5
+    y_max = 1.5
+    z_min = -1.5
+    z_max = 1.5
+    delta = (x_max - x_min) / ((nx/2)-1) 
 
-    m = 1.0 !assign mass to each particle
 
     !read particle position from initial array
     do i = 1, N
+        if (i == 1 .or. i ==2) then 
+            m = 1.0  !assign mass to each particle
+        else
+            m = 1.0
+        end if 
         x = particles(1, i)
         y = particles(2, i)
         z = particles(3, i)
     
         !ignore particles outside the range [-1.0, 1.0]
-        if (x < -1.0 .or. x > 1.0 .or. y < -1.0 .or. y > 1.0 .or. z < -1.0 .or. z > 1.0) cycle
-        
-        !determine the grid index from particle position
-        ix = floor((x - x_min) / (2.0*dx)) + 1
-        iy = floor((y - y_min) / (2.0*dy)) + 1
-        iz = floor((z - z_min) / (2.0*dz)) + 1
+        if (x < -1.5 .or. x > 1.5 .or. y < -1.5 .or. y > 1.5 .or. z < -1.5 .or. z > 1.5) cycle
+
+        ix = int(floor((x - x_min) / delta)) + 1
+        iy = int(floor((y - y_min) / delta)) + 1
+        iz = int(floor((z - z_min) / delta)) + 1
     
         if (ix < 1) ix = 1
-        if (ix >= nx) ix = nx-1
+        if (ix >= nx/2) ix = nx/2 -1
         if (iy < 1) iy = 1
-        if (iy >= ny) iy = ny-1
+        if (iy >= ny) iy = ny/2 -1
         if (iz < 1) iz = 1
-        if (iz >= nz) iz = nz-1
+        if (iz >= nz) iz = nz/2 -1
+
+        x_i = x_min + (ix - 1) * delta
+        y_j = x_min + (iy - 1) * delta
+        z_k = x_min + (iz - 1) * delta
     
-        !compute_accelerationsulate lower bound of the particle
-        x_lower = x_min + (ix-1) * (2*dx)
-        y_lower = y_min + (iy - 1) * (dy*2.0)
-        z_lower = z_min + (iz - 1) * (dz*2.0)
-
-        !compute relative positions
-        x_rel = (x - x_lower) / (2*dx)
-        y_rel = (y - y_lower) / (2*dy)
-        z_rel = (z - z_lower) / (2*dz)
+        !calcualte relative distance of particle in the cell
+        x_rel = (x - x_i) / delta
+        y_rel = (y - y_j) / delta 
+        z_rel = (z - z_k) / delta
     
-        ! print *, "Particle position:", x, y, z 
-        ! print *, "Grid index", ix, iy, iz
-        ! print *, "Relative position:", x_rel, y_rel, z_rel 
-        ! print *, "__________________________"
-        
-        !compute_accelerationsulate weights
-
-
+        !calculate weights
         wx0 = 1.0 - x_rel 
         wx1 = x_rel 
         wy0 = 1.0 - y_rel 
         wy1 = y_rel 
         wz0 = 1.0 - z_rel 
         wz1 = z_rel 
-        
+
+        !print *, "Particle position:", x, y, z 
+        !print *, "Grid index", ix, iy, iz
+        !print *, 'Position', x_i, y_j, z_k
+        !print *, "Relative position:", x_rel, y_rel, z_rel 
+        !print *, "weights", wx0, wx1, wy0, wy1, wz0, wz1
+        !print *, "__________________________"
+    
+    
         !update density field
         density(ix, iy, iz) = density(ix, iy, iz) + m * wx0 * wy0 * wz0 
-
         density(ix+1, iy, iz) = density(ix+1, iy, iz) + m * wx1 * wy0 * wz0 
         density(ix, iy+1, iz) = density(ix, iy+1, iz) + m * wx0 * wy1 * wz0 
         density(ix+1, iy+1, iz) = density(ix+1, iy+1, iz) + m * wx1 * wy1 * wz0
-
         density(ix, iy, iz+1) = density(ix, iy, iz+1) + m * wx0 * wy0 * wz1
         density(ix+1, iy, iz+1) = density(ix+1, iy, iz+1) + m * wx1 * wy0 * wz1
         density(ix, iy+1, iz+1) = density(ix, iy+1, iz+1) + m * wx0 * wy1 * wz1 
         density(ix+1, iy+1, iz+1) = density(ix+1, iy+1, iz+1) + m * wx1 * wy1 * wz1
-        
+    
     end do
 
+    nx_inner = nx / 2
+    ny_inner = ny / 2
+    nz_inner = nz / 2
+    
+    ! Calculate the start and end indices for the loops
+    istart = nx / 4 + 1
+    iend = istart + nx_inner - 1
+    jstart = ny / 4 + 1
+    jend = jstart + ny_inner - 1
+    kstart = nz / 4 + 1
+    kend = kstart + nz_inner - 1
+    
+    ! Initialize density_full to zero (if not already done)
+    density_full = 0.0
+    
+    ! Loop over the indices to copy density into density_full
+    do k = kstart, kend
+        kd = k - kstart + 1  ! Corresponding index in density
+        do j = jstart, jend
+            jd = j - jstart + 1
+            do i = istart, iend
+                id = i - istart + 1
+                density_full(i, j, k) = density(id, jd, kd)
+            end do
+        end do
+    end do
 
 end subroutine particle_to_grid
  
