@@ -507,7 +507,7 @@ end module device_ops
     
 
 
-subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_grid_c_d,nx,ny,nz,N)
+subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_d,N_d)
     !###########################################################
     ! Instructions:
     !      Pass in a density grid to fill density_grid
@@ -535,8 +535,9 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     !   and cufft functions
     !###########################
     
+    integer,intent(in)::  nx,ny,nz
 
-    integer,intent(in)::  nx,ny,nz,N
+   
 
     ! Normalization Factor
   
@@ -550,7 +551,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     !   Device Initializations
     !#########################
 
-    
+     integer,device::  nx_d,ny_d,nz_d,N_d
     ! Real and complex density on gpu
     real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
     complex, Dimension(:,:,:), allocatable,device:: density_grid_c_d
@@ -603,10 +604,12 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     ! print*, gravity_grid
     ! Normalize Gravity Cube in real space(divide by N/)
     
-    factor = 1/N ! precompute to do multiplication instead of division on array ops
+
+    ! TODO: Check im not crazy and i should be using N
+    factor = 1/N_d ! precompute to do multiplication instead of division on array ops
 
     ! Apply factor ONLY to the acceleration dimensions not the index ones
-    gravity_grid_r_d(1:3, :, :, :) = gravity_grid_r_d(1:3, :, :, :) * factor
+    gravity_grid_r_d(1:3, :, :, :) = gravity_grid_r_d(1:3, :, :, :) *1/N_d 
 
     
     !Destroy Plan
@@ -1024,7 +1027,7 @@ program nbody_sim
     integer, parameter::N = 100000000
     integer, parameter:: nx =512 , ny = 512, nz = 256
     integer:: checkpoint,steps,k,i
-    real:: smbh1_m,smbh2_m,E_0,E
+    real:: m,smbh1_m,smbh2_m,E_0,E
     real, dimension(9,N)::particles
     real, parameter::dt = 10e-5 ! Needed to keep Energy change way below 10^-5
     real,dimension(3)::p
@@ -1037,7 +1040,7 @@ program nbody_sim
     ! #######################################
     ! Particles on GPU
     real, Dimension(:,:),allocatable, device::particles_d
-    real,device::dt_d,nx_d,ny_d,nz_d,smbh1_m_d,smbh2_m_d,dx,dy,dz
+    real,device::dt_d,nx_d,ny_d,nz_d,m_d,smbh1_m_d,smbh2_m_d,dx,dy,dz
     integer,device:: N_d
 
     ! Real and complex density on gpu
@@ -1090,7 +1093,6 @@ program nbody_sim
     dz = 1.0/(nz-1)
     dt_d = dt
 
-    smbh_m = 1 ! just set to whatever it is
     animate = .true.
     checkpoint = 10 !s
     
@@ -1126,7 +1128,7 @@ program nbody_sim
         ! fills the real gravity grid
         ! still stays on gpu
         ! host/cpu - style function is just composing cuda kernel functions
-        call fft_step(density_grid_r_d,density_grid_r_c,gravity_grid_r_d,gravity_grid_c_d,nx_d, ny_d, nz_d, N_d)
+        call fft_step(density_grid_r_d,density_grid_r_d,gravity_grid_r_d,gravity_grid_c_d, nx,ny,nz,nx_d, ny_d, nz_d, N_d)
 
         !! here zac call your grid to particles kernel
         !! heres and example you can change dimensions and stuff
@@ -1152,6 +1154,6 @@ program nbody_sim
     deallocate(gravity_grid_r_d,gravity_grid_c_d)
 
     ! deallocate particles
-    allocate(particles_d)
+    deallocate(particles_d)
  
 end program nbody_sim 
