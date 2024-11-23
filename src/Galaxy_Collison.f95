@@ -193,7 +193,7 @@ end subroutine check_energy
 
 module device_ops
     contains
-    attributes(global) subroutine compute_accelerations(gravity_grid_c_d,density_grid_c_d,nx,ny,nz)
+    attributes(global) subroutine compute_gravities(gravity_grid_c_d,density_grid_c_d,nx,ny,nz)
         implicit none
         complex, Dimension(:,:,:):: density_grid_c_d
 
@@ -273,16 +273,15 @@ module device_ops
                 gravity_grid_c_d(3, k_x, k_y, k_z) = k3 * p_term
             endif
         call syncthreads
-    end subroutine compute_accelerations
+    end subroutine compute_gravities
     
-    attributes(global) subroutine normalize3d(arr,nx,ny,nz,maximum)
+    attributes(global) subroutine normalize3d(arr,nx,ny,nz,factor)
         implicit none
-        integer::nx,ny,nz, maximum
+        integer,value::nx,ny,nz
         real, dimension(nx,ny,nz)::arr
         integer::i,j,K
         
-        real::factor
-        factor = 1/maximum
+        real,value::factor
         i = (blockIdx%x-1)*blockDim%x + threadIdx%x
         j = (blockIdx%y-1)*blockDim%y + threadIdx%y
         k = (blockIdx%z-1)*blockDim%z + threadIdx%z
@@ -359,11 +358,12 @@ module device_ops
             endif
         call syncthreads
     end subroutine calculate_U
-    attributes(global) subroutine integration_step(particles_d, N_d, dt_d)
+    attributes(global) subroutine integration_step(particles_d, N,dt)
         implicit none
-        integer :: i,N_d
+        integer :: i
+        integer, value::N
         real, dimension(:,:) :: particles_d
-        real :: dt_d
+        real, value:: dt
     
 
         i = (blockIdx%x-1)*blockDim%x + threadIdx%x
@@ -379,15 +379,15 @@ module device_ops
         ! a = particles_d(7:9,:)
 
         ! note for other guys, i think remember <= here since fortran arrays are inclusive of N
-        if (i<= N_d) then
+        if (i<= N) then
             ! kick
-            particles_d(4:6,i) = particles_d(4:6,i) + particles_d(7:9,i)*dt_d*0.5
+            particles_d(4:6,i) = particles_d(4:6,i) + particles_d(7:9,i)*dt*0.5
 
             !drift
-            particles_d(1:3,i) = particles_d(1:3,i)+particles_d(4:6,i)*dt_d
+            particles_d(1:3,i) = particles_d(1:3,i)+particles_d(4:6,i)*dt
 
             !kick
-            particles_d(4:6,i) =particles_d(4:6,i)+particles_d(7:9,i)*dt_d*0.5
+            particles_d(4:6,i) =particles_d(4:6,i)+particles_d(7:9,i)*dt*0.5
 
         endif
 
@@ -430,12 +430,12 @@ module device_ops
     attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
         implicit none
         integer, value :: N, nx, ny, nz
-        real(kind(0.0)), value :: dx, dy, dz
+        real(kind(0.0)), value :: dx, dy, dz,smbh1_m, smbh2_m
         real(kind(0.0)), device :: particles_d(9, N), density_grid_r_d(nx, ny, nz)
 
         ! Thread and block indices
         integer :: idx, ix, iy, iz, thread_id
-        real(kind(0.0)) :: x, y, z, smbh1_m, smbh2_m
+        real(kind(0.0)) :: x, y, z, m
         real(kind(0.0)) :: x_rel, y_rel, z_rel
         real(kind(0.0)) :: wx0, wx1, wy0, wy1, wz0, wz1
         real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, x_i, y_j, z_k
@@ -450,8 +450,8 @@ module device_ops
         delta = (x_max - x_min) / ((nx/2)-1)
 
         !compute global thread ID
-        thread_id = (blockIdx%x -1) * blockDim%x + threadIdx%x_i
-        if (thread_id > N) return
+        thread_id = (blockIdx%x -1) * blockDim%x + threadIdx%x
+        if (thread_id >= N) return
 
         !read particle positions 
         x = particles_d(1,thread_id)
@@ -501,14 +501,15 @@ module device_ops
         wz1 = z_rel
 
         ! Update density feiled (atomic operations to prevent race condition)
-        density_grid_r_d(ix, iy , iz) = density_grid_r_d(ix, iy , iz) + m * wx0 * wy0 * wz0
-        density_grid_r_d(ix + 1, iy, iz) = density_grid_r_d(ix + 1, iy, iz) + m * wx1 * wy0 * wz0
-        density_grid_r_d(ix, iy + 1, iz) = density_grid_r_d(ix, iy + 1, iz) + m * wx0 * wy1 * wz0
-        density_grid_r_d(ix + 1, iy + 1, iz) = density_grid_r_d(ix + 1, iy + 1, iz) + m * wx1 * wy1 * wz0
-        density_grid_r_d(ix, iy, iz + 1) = density_grid_r_d(ix, iy, iz + 1) + m * wx0 * wy0 * wz1
-        density_grid_r_d(ix + 1, iy, iz + 1) = density_grid_r_d(ix + 1, iy, iz + 1) + m * wx1 * wy0 * wz1
-        density_grid_r_d(ix, iy + 1, iz + 1) = density_grid_r_d(ix, iy + 1, iz + 1) + m * wx0 * wy1 * wz1
-        density_grid_r_d(ix + 1, iy + 1, iz + 1) = density_grid_r_d(ix + 1, iy + 1, iz + 1) + m * wx1 * wy1 * wz1
+      
+        call atomicAdd(d_density(ix, iy, iz), m * wx0 * wy0 * wz0)
+        call atomicAdd(d_density(ix+1, iy, iz), m * wx1 * wy0 * wz0)
+        call atomicAdd(d_density(ix, iy+1, iz), m * wx0 * wy1 * wz0)
+        call atomicAdd(d_density(ix+1, iy+1, iz), m * wx1 * wy1 * wz0)
+        call atomicAdd(d_density(ix, iy, iz+1), m * wx0 * wy0 * wz1)
+        call atomicAdd(d_density(ix+1, iy, iz+1), m * wx1 * wy0 * wz1)
+        call atomicAdd(d_density(ix, iy+1, iz+1), m * wx0 * wy1 * wz1)
+        call atomicAdd(d_density(ix+1, iy+1, iz+1), m * wx1 * wy1 * wz1)
     end subroutine particle_to_grid_cuda
 
     attributes(global) subroutine grid_to_particle_cuda(acceleration_grid, particles, N, nx, ny, nz, dx, dy, dz,smbh1_m, smbh2_m)
@@ -520,7 +521,8 @@ module device_ops
 
         !thread and block indecies 
         integer :: i,ix,iy,iz,ix_shifted,iy_shifted,iz_shifted,thread_id
-        real(kind(0.0)) :: x,y,z,smbh1_m,smbh2_m,m
+        real, value :: smbh1_m,smbh2_m
+        real(kind(0.0)) :: x,y,z,m
         real(kind(0.0)) :: x_rel,y_rel,z_rel
         real(kind(0.0)) :: wx0, wx1, wy0, wy1, wz0, wz1
         real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, x_i, y_j, z_k
@@ -536,7 +538,7 @@ module device_ops
         delta = (x_max - x_min) / real(nx/2 - 1)
 
         ! Compte global thread ID
-        thread_id = (blockIdx%x - 1) * blockDmin%x + threadIdx%x
+        thread_id = (blockIdx%x - 1) * blockDim%x + threadIdx%x
         if (thread_id > N) return 
 
         ! Read particle positons 
@@ -634,7 +636,7 @@ end module device_ops
     
 
 
-subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_d,N_d)
+subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_grid_c_d,nx,ny,nz,N)
     !###########################################################
     ! Instructions:
     !      Pass in a density grid to fill density_grid
@@ -662,10 +664,12 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     !   and cufft functions
     !###########################
     
-    integer,intent(in)::  nx,ny,nz
+    integer,intent(in)::  nx,ny,nz, N
 
    
+    ! Normalization Factor
 
+    real :: factor
   
 
     ! Cuda Variables for plan process
@@ -677,11 +681,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     !#########################
 
 
-    ! Normalization Factor
-
-    real,device:: factor
-
-     integer,device::  nx_d,ny_d,nz_d,N_d
+   
     ! Real and complex density on gpu
 
     real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
@@ -718,7 +718,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     ! 3D R2C Fourier Transform execution
     call cufftExecR2C(plan,density_grid_r_d,density_grid_c_d)
 
-    call compute_accelerations<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_c_d,density_grid_c_d,nx_d,ny_d,nz_d)
+    call compute_gravities<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_c_d,density_grid_c_d,nx,ny,nz)
 
 
     !#######################################
@@ -736,10 +736,11 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     
 
     ! TODO: Check im not crazy and i should be using N
-
+    factor = 1/N
     ! Apply factor ONLY to the acceleration dimensions not the index ones
     
-    call normalize3d<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_r_d,nx_d,ny_d,nz_d,N_d)
+    
+    call normalize3d<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_r_d,nx,ny,nz,factor)
     
     !Destroy Plan
     call cufftDestroy(plan)
@@ -786,7 +787,7 @@ subroutine initialize_particles2(particle_arr,N,Ra)
     r = Ra/4 + r * (Ra - Ra/4)
     call random_number(random_offset)
     random_offset = (random_offset - 0.5) * Ra / 10
-    ! compute_accelerationsulate theta for a logarithmic spiral
+    ! compute_gravitiesulate theta for a logarithmic spiral
     theta = spiral_factor * log(r) + mod(i, 4) * arm_separation + random_offset / r
     
     particle_arr(1:3, 2) = (/ (r + random_offset) * cos(theta), (r + random_offset) * sin(theta), (2.0 * random_offset - 1.0) * 0.01 * Ra /)  ! Position
@@ -804,7 +805,7 @@ subroutine initialize_particles2(particle_arr,N,Ra)
         call random_number(random_offset)
         random_offset = (random_offset - 0.5) * Ra / 10
 
-        ! compute_accelerationsulate theta for a logarithmic spiral
+        ! compute_gravitiesulate theta for a logarithmic spiral
         theta = spiral_factor * log(r) + mod(i, 4) * arm_separation + random_offset / r
 
         ! Set x, y, z for a spiral galaxy
@@ -889,7 +890,7 @@ subroutine initialize_particles(particle_arr,N,Ra)
         call random_number(random_offset)
         random_offset = (random_offset - 0.5) * Ra / 10
 
-        ! compute_accelerationsulate theta for a logarithmic spiral
+        ! compute_gravitiesulate theta for a logarithmic spiral
         theta = spiral_factor * log(r) + mod(i, 4) * arm_separation + random_offset / r
 
         ! Set x, y, z for a spiral galaxy
@@ -996,7 +997,7 @@ subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
         if (iz < 1) iz = 1
         if (iz >= nz) iz = nz-1
     
-        !compute_accelerationsulate lower bound of the particle
+        !compute_gravitiesulate lower bound of the particle
         x_lower = x_min + (ix-1) * (2*dx)
         y_lower = y_min + (iy - 1) * (dy*2.0)
         z_lower = z_min + (iz - 1) * (dz*2.0)
@@ -1011,7 +1012,7 @@ subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
         ! print *, "Relative position:", x_rel, y_rel, z_rel 
         ! print *, "__________________________"
         
-        !compute_accelerationsulate weights
+        !compute_gravitiesulate weights
 
 
         wx0 = 1.0 - x_rel 
@@ -1151,6 +1152,7 @@ subroutine grid_to_particle(acceleration_grid,particles, N, nx, ny, nz, dx, dy, 
 
 program nbody_sim
     use precision
+    use device_ops
     use cufft_interface
     implicit none
     integer, parameter::N = 100000000
@@ -1225,7 +1227,7 @@ program nbody_sim
     smbh2_m_d = smbh2_m
     m_d = m
     N_d = N
-    dx = 1.0/(nx-1)
+    dx = 1.0/(nx-1) 
     dy = 1.0/(ny-1)
     dz = 1.0/(nz-1)
     dt_d = dt
@@ -1241,7 +1243,7 @@ program nbody_sim
     print*, 'Got past initialization'
 
 
-    call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz)
+    call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
     print*, 'Got past particle to grid'
 
     !call check_energy(density,nx,ny,nz,particles,N,smbh_m,E_0)
@@ -1249,28 +1251,28 @@ program nbody_sim
 
     do i=1, 1000
         ! These 2 will go inside a do loop until end condition
-        call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz)
+        call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
 
         print*, 'Got past particle to grid'
         ! add an if for however many steps 
         ! again, like fft stays on gpu but composes with a fft call
-        call check_energy(density_grid_r_d,nx,ny,nz,particles,N,smbh1_m,smbh2_m,E)
+        call check_energy(density_grid_r_d,nx,ny,nz,particles_d,N,smbh1_m,smbh2_m,E)
         print*, 'Got past second energy check'
 
 
         ! fills the real gravity grid
         ! still stays on gpu
         ! host/cpu - style function is just composing cuda kernel functions
-        call fft_step(density_grid_r_d,density_grid_r_d,gravity_grid_r_d,gravity_grid_c_d, nx,ny,nz,nx_d, ny_d, nz_d, N_d)
+        call fft_step(density_grid_r_d,density_grid_r_d,gravity_grid_r_d,gravity_grid_c_d, nx,ny,nz)
 
         !! here zac call your grid to particles kernel
         !! heres and example you can change dimensions and stuff
-        !call <<256,256>>gravities_to_accelerations(gravity_grid_r_d,nx,ny,nz,particles_d,N)
+        call grid_to_particle_cuda<<<256,256>>>(gravity_grid_r_d,particles_d,N_d,nx, ny, nz,dx, dy, dz,smbh1_m,smbh2_m)
 
         ! integration step pushes all positions
         ! ill need to revisit thread count block size just going quick
         ! to get structure
-        call integration_step<<<256,256>>>(particles_d,N_d,dt_d)
+        call integration_step<<<256,256>>>(particles_d,N,dt)
         print*, "Done step: ", i
 
         ! need a step to [pass back & write out
@@ -1289,4 +1291,4 @@ program nbody_sim
     ! deallocate particles
     deallocate(particles_d)
  
-end program nbody_sim 
+end program nbody_sim
