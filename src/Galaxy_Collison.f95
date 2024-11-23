@@ -422,6 +422,90 @@ module device_ops
             KE = KE + m* 0.5* sum(v_i**2)
         
     end subroutine calculate_KE
+    ! A in works Subroutine that does particle to gid on GPU
+    attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz)
+        implicit none
+        integer, value :: N, nx, ny, nz
+        real(kind(0.0)), value :: dx, dy, dz
+        real(kind(0.0)), device :: particles_d(9, N), density_grid_r_d(nx, ny, nz)
+
+        ! Thread and block indices
+        integer :: idx, ix, iy, iz, thread_id
+        real(kind(0.0)) :: x, y, z, m
+        real(kind(0.0)) :: x_rel, y_rel, z_rel
+        real(kind(0.0)) :: wx0, wx1, wy0, wy1, wz0, wz1
+        real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, x_i, y_j, z_k
+
+        ! predefined
+        x_min = -1.5
+        x_max = 1.5
+        y_min = -1.5
+        y_max = 1.5
+        z_min = -1.5
+        z_max = 1.5
+        delta = (x_max - x_min) / ((nx/2)-1)
+
+        !compute global thread ID
+        thread_id = (blockIdx%x -1) * blockDim%x + threadIdx%x_i
+        if (thread_id > N) return
+
+        !read particle positions 
+        x = particles_d(1,thread_id)
+        y = particles_d(2,thread_id)
+        z = particles_d(3,thread_id)
+
+        ! Assign mass based on particle ID
+        if (thread_id==1) then
+            m = 1000*N 
+        end if 
+        if (thread_id==2) then
+            m = 100*N 
+        else
+            m = 1/N 
+        end if 
+
+        ! Ignore particles outside the range [-1.5,1.5]
+        if (x < x_min .or. x > x_max .or. y < y_min .or. y > y_max .or. z < z_min .or. z > z_max) return
+
+        ! determine grid cell indicies 
+        ix = int(floor((x-x_min)/delta)) + 1
+        iy = int(floor((y-y_min)/delta)) + 1
+        iz = int(floor((z-z_min)/delta)) + 1
+
+        !clamp indecies within bounds 
+        if (ix < 1) ix = 1
+        if (ix >= nx/2) ix = nx/2 -1
+        if (iy < 1) iy = 1
+        if (iy >= ny) iy = ny/2 -1
+        if (iz < 1) iz = 1
+        if (iz >= nz) iz = nz/2 -1
+
+        x_i = x_min + (ix - 1) * delta
+        y_j = y_min + (iy - 1) * delta
+        z_k = z_min + (iz - 1) * delta
+
+        x_rel = (x-x_i)/delta
+        y_rel = (y-y_j)/delta
+        z_rel = (z-z_k)/delta
+
+        ! Claculate weights
+        wx0 = 1.0 - x_rel 
+        wx1 = x_rel 
+        wy0 = 1.0 - y_rel 
+        wy1 = y_rel 
+        wz0 = 1.0 - z_rel 
+        wz1 = z_rel
+
+        ! Update density feiled (atomic operations to prevent race condition)
+        atomicadd(density_grid_r_d(ix,iy,iz),m*wx0*wy0*wz0)
+        atomicadd(density_grid_r_d(ix+1,iy,iz),m*wx1*wy0*wz0)
+        atomicadd(density_grid_r_d(ix,iy+1,iz),m*wx0*wy1*wz0)
+        atomicadd(density_grid_r_d(ix+1,iy+1,iz),m*wx1*wy1*wz0)
+        atomicadd(density_grid_r_d(ix,iy,iz+1),m*wx0*wy0*wz1)
+        atomicadd(density_grid_r_d(ix+1,iy,iz+1),m*wx1*wy0*wz1)
+        atomicadd(density_grid_r_d(ix,iy+1,iz+1),m*wx0*wy1*wz1)
+        atomicadd(density_grid_r_d(ix+1,iy+1,iz+1),m*wx1*wy1*wz1)
+    end subroutine
 end module device_ops
     
 
