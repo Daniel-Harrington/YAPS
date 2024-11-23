@@ -90,7 +90,6 @@ end module cufft_interface
     
 
 
-subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N,smbh1_m,smbh2_m,E)
 subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_d,particles_d,N_d,m_d,smbh1_m_d,smbh2_m_d,E)
     !###########################################################
     ! Instructions:
@@ -120,25 +119,18 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_
     !   Host Initializations
     !#########################
     
-    integer,intent(in)::  nx,ny,nz,N
-    ! I can operate in place on the density grid since it needs to be
-    ! recomputed anyways, this way avoids creating another huge 3d array of grid_dim^3 cells
-    ! atleast on the cpu
-    
-    real, Dimension(9,N)::particles_d
-    real, Dimension(3):: v_i
+    integer,intent(in)::  nx,ny,nz
+   
 
-    ! Energy compute_accelerationsulation 
+    ! Energy compute_acceleration
     real::U,E,KE
-    real::U,KE,E
     
     integer::V
 
      ! Constants
 
     real,parameter:: pi = atan(1.0)*4 
-    real::m,smbh1_m,smbh2_m
-   
+
     real :: G = 1 ! Natural Units
 
     ! Iteration
@@ -184,10 +176,8 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_
 
     U=0.0
     KE = 0.0
-    call calculate_U<<<256,256>>>(density_grid_c_d,nx,ny,nz,U)
+    call calculate_U<<<256,256>>>(density_grid_c_d,nx_d,ny_d,nz_d,U_d)
 
-    m = 1/N
-    call calculate_KE<<<256,256>>>(particles_d,N,m,smbh1_m,smbh2_m)
  
     call calculate_KE<<<256,256>>>(particles_d,N_d,m_d,smbh1_m_d,smbh2_m_d,KE_d)
     !Destroy Plan
@@ -1180,11 +1170,9 @@ program nbody_sim
     integer, parameter::N = 100000000
     integer, parameter:: nx =512 , ny = 512, nz = 256
     integer:: checkpoint,steps,k,i
-    real:: smbh_1,smbh_2
     real:: m,smbh1_m,smbh2_m,E_0,E
     real, dimension(9,N)::particles
     real, parameter::dt = 10e-5 ! Needed to keep Energy change way below 10^-5
-    real:: E_0,E,Rm,Vm,t_c,curr_time,Rm_0,anim_time, dx, dy, dz, density(nx, ny, nz)
     real,dimension(3)::p
     logical::animate
     integer:: particle_to_track = 50
@@ -1194,7 +1182,6 @@ program nbody_sim
     ! DEVICE MEMORY SETUP
     ! #######################################
     ! Particles on GPU
-    real, Dimension(:,:)::particles_d
     real, Dimension(:,:),allocatable, device::particles_d
     real,device::dt_d,nx_d,ny_d,nz_d,m_d,smbh1_m_d,smbh2_m_d,dx,dy,dz
     integer,device:: N_d
@@ -1230,8 +1217,12 @@ program nbody_sim
     !   HOST(CPU) INITIALIZATIONS
     !
     !##############################################
-    smbh1_m = 1
-    smbh2_m = 1
+
+    
+    call initialize_particles2(particles,N,1)
+
+    smbh1_m = 1.0  ! just set to whatever it is
+    smbh2_m = smbh1_m/10
     m = 1/N
     E = 0
     !##############################################
@@ -1251,12 +1242,6 @@ program nbody_sim
     dz = 1.0/(nz-1)
     dt_d = dt
 
-    smbh_m = 1.0  ! just set to whatever it is
-    smbh_m2 = smbh_m/10
-    animate = .true.
-    checkpoint = 10 !s
-    
-    call initialize_particles2(particles,N,1)
 
     ! copy particles from host to device memory
     particles_d = particles
@@ -1281,7 +1266,7 @@ program nbody_sim
         print*, 'Got past particle to grid'
         ! add an if for however many steps 
         ! again, like fft stays on gpu but composes with a fft call
-        call check_energy(density,nx,ny,nz,particles,N,smbh1_m,smbh2_m,E)
+        call check_energy(density_grid_r_d,nx,ny,nz,particles,N,smbh1_m,smbh2_m,E)
         print*, 'Got past second energy check'
 
 
