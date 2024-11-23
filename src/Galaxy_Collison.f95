@@ -146,9 +146,9 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_
     !###################################
     !   Device Initialization
     !################################### 
-    integer,device:: nx_d,ny_d,nz_d,N
-    real, device :: U_d,KE_d,m,smbh1_m,smbh2_m
-    real, Dimension(9,N),device::particles_d
+    integer,device:: nx_d,ny_d,nz_d,N_d
+    real, device :: U_d,KE_d,m,smbh1_m_d,smbh2_m_d
+    real, Dimension(:,:),allocatable,device::particles_d
     real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
     complex(fp_kind), Dimension(:,:,:), allocatable,device:: density_grid_c_d
     call cudaSetDevice(0)
@@ -190,7 +190,7 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_
     call calculate_U<<<256,256>>>(density_grid_c_d,nx_d,ny_d,nz_d,U_d)
 
     m = 1/N
-    call calculate_KE<<<256,256>>>(particles_d,N_d,m,smbh1_m,smbh2_m,KE_d)
+    call calculate_KE<<<256,256>>>(particles_d,N_d,m,smbh1_m_d,smbh2_m_d,KE_d)
     !Destroy Plan
     call cufftDestroy(plan)
 
