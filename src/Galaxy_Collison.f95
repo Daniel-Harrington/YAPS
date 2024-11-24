@@ -440,7 +440,7 @@ module device_ops
         real(kind(0.0)) :: x, y, z, m
         real(kind(0.0)) :: x_rel, y_rel, z_rel
         real(kind(0.0)) :: wx0, wx1, wy0, wy1, wz0, wz1
-        real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, x_i, y_j, z_k
+        real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, delta_z, x_i, y_j, z_k
         
 
         ! predefined
@@ -451,6 +451,7 @@ module device_ops
         z_min = -1.5
         z_max = 1.5
         delta = (x_max - x_min) / ((nx/2)-1)
+        delta_z = (z_max - z_min) / ((nz/2) - 1)
 
         !compute global thread ID
         thread_id = (blockIdx%x -1) * blockDim%x + threadIdx%x
@@ -478,7 +479,7 @@ module device_ops
         ! determine grid cell indicies 
         ix = int(floor((x-x_min)/delta)) + 1
         iy = int(floor((y-y_min)/delta)) + 1
-        iz = int(floor((z-z_min)/delta)) + 1
+        iz = int(floor((z-z_min)/delta_z)) + 1
 
         !clamp indecies within bounds 
         if (ix < 1) ix = 1
@@ -490,11 +491,11 @@ module device_ops
 
         x_i = x_min + (ix - 1) * delta
         y_j = y_min + (iy - 1) * delta
-        z_k = z_min + (iz - 1) * delta
+        z_k = z_min + (iz - 1) * delta_z
 
         x_rel = (x-x_i)/delta
         y_rel = (y-y_j)/delta
-        z_rel = (z-z_k)/delta
+        z_rel = (z-z_k)/delta_z
 
         ! Claculate weights
         wx0 = 1.0 - x_rel 
@@ -530,7 +531,7 @@ module device_ops
         real(kind(0.0)) :: x,y,z,m
         real(kind(0.0)) :: x_rel,y_rel,z_rel
         real(kind(0.0)) :: wx0, wx1, wy0, wy1, wz0, wz1
-        real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, x_i, y_j, z_k
+        real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, delta_z, x_i, y_j, z_k
         real(kind(0.0)) :: acc_x , acc_y, acc_z
 
         ! Predefined 
@@ -541,6 +542,7 @@ module device_ops
         z_min = -1.5
         z_max = 1.5
         delta = (x_max - x_min) / real(nx/2 - 1)
+        delta_z = (z_max - z_min) /real(nz/2 - 1)
 
         ! Compte global thread ID
         thread_id = (blockIdx%x - 1) * blockDim%x + threadIdx%x
@@ -567,7 +569,7 @@ module device_ops
         ! Determine grid cell indecies 
         ix = int(floor((x - x_min) / delta)) + 1
         iy = int(floor((x - y_min) / delta)) + 1
-        iz = int(floor((z - z_min) / delta)) + 1
+        iz = int(floor((z - z_min) / delta_z)) + 1
 
         ! Clamp indices within bounds
         if (ix < 1) ix = 1
@@ -579,12 +581,12 @@ module device_ops
 
         x_i = x_min + (ix - 1) * delta
         y_j = y_min + (iy - 1) * delta
-        z_k = z_min + (iz - 1) * delta
+        z_k = z_min + (iz - 1) * delta_z
         
         ! Calculate relative distances
         x_rel = (x - x_i) / delta
         y_rel = (y - y_j) / delta
-        z_rel = (z - z_k) / delta
+        z_rel = (z - z_k) / delta_z
 
         ! Calculate weights 
         wx0 = 1.0 - x_rel
