@@ -428,13 +428,14 @@ module device_ops
     end subroutine calculate_KE
     ! A in works Subroutine that does particle to gid on GPU
     attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
+        use cudafor
         implicit none
         integer, value :: N, nx, ny, nz
         real(kind(0.0)), value :: dx, dy, dz,smbh1_m, smbh2_m
         real(kind(0.0)), device :: particles_d(9, N), density_grid_r_d(nx, ny, nz)
 
         ! Thread and block indices
-        integer :: idx, ix, iy, iz, thread_id
+        integer :: idx, ix, iy, iz, thread_id,istat
         real(kind(0.0)) :: x, y, z, m
         real(kind(0.0)) :: x_rel, y_rel, z_rel
         real(kind(0.0)) :: wx0, wx1, wy0, wy1, wz0, wz1
@@ -465,7 +466,7 @@ module device_ops
         if (thread_id==2) then
             m = smbh2_m 
         else
-            m = 1/N 
+            m = 1.0 /N 
         end if 
 
         ! Ignore particles outside the range [-1.5,1.5]
@@ -502,14 +503,14 @@ module device_ops
 
         ! Update density feiled (atomic operations to prevent race condition)
       
-        call atomicAdd(d_density(ix, iy, iz), m * wx0 * wy0 * wz0)
-        call atomicAdd(d_density(ix+1, iy, iz), m * wx1 * wy0 * wz0)
-        call atomicAdd(d_density(ix, iy+1, iz), m * wx0 * wy1 * wz0)
-        call atomicAdd(d_density(ix+1, iy+1, iz), m * wx1 * wy1 * wz0)
-        call atomicAdd(d_density(ix, iy, iz+1), m * wx0 * wy0 * wz1)
-        call atomicAdd(d_density(ix+1, iy, iz+1), m * wx1 * wy0 * wz1)
-        call atomicAdd(d_density(ix, iy+1, iz+1), m * wx0 * wy1 * wz1)
-        call atomicAdd(d_density(ix+1, iy+1, iz+1), m * wx1 * wy1 * wz1)
+        istat = atomicadd(density_grid_r_d(ix, iy, iz), m * wx0 * wy0 * wz0)
+        istat = atomicadd(density_grid_r_d(ix+1, iy, iz), m * wx1 * wy0 * wz0)
+        istat = atomicadd(density_grid_r_d(ix, iy+1, iz), m * wx0 * wy1 * wz0)
+        istat = atomicadd(density_grid_r_d(ix+1, iy+1, iz), m * wx1 * wy1 * wz0)
+        istat = atomicadd(density_grid_r_d(ix, iy, iz+1), m * wx0 * wy0 * wz1)
+        istat = atomicadd(density_grid_r_d(ix+1, iy, iz+1), m * wx1 * wy0 * wz1)
+        istat = atomicadd(density_grid_r_d(ix, iy+1, iz+1), m * wx0 * wy1 * wz1)
+        istat = atomicadd(density_grid_r_d(ix+1, iy+1, iz+1), m * wx1 * wy1 * wz1)
     end subroutine particle_to_grid_cuda
 
     attributes(global) subroutine grid_to_particle_cuda(acceleration_grid, particles, N, nx, ny, nz, dx, dy, dz,smbh1_m, smbh2_m)
@@ -1153,6 +1154,7 @@ subroutine grid_to_particle(acceleration_grid,particles, N, nx, ny, nz, dx, dy, 
 program nbody_sim
     use precision
     use device_ops
+    
     use cufft_interface
     implicit none
     integer, parameter::N = 100000000
