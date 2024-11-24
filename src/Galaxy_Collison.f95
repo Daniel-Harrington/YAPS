@@ -16,7 +16,454 @@ module precision
     !integer, parameter, public :: fp_kind = Double
     integer, parameter, public :: fp_kind = Single
 end module precision
+
+module device_ops
+contains
+attributes(global) subroutine compute_gravities(gravity_grid_c_d,density_grid_c_d,nx,ny,nz)
+    implicit none
+    complex, Dimension(:,:,:):: density_grid_c_d
+
+    ! Real and complex gravities on gpu
+    complex, Dimension(:,:,:,:):: gravity_grid_c_d
+    real :: G = 1 ! Natural Units
+    real,parameter:: pi = atan(1.0)*4 
+    real:: constants
+    complex:: p_term
+    integer,value::  nx,ny,nz
+
+    ! Iteration
+    integer::k_x,k_y,k_z
+    complex::k1,k2,k3
+    real::K, p_mag
+
+    ! Wave number stuff
+
+    ! From dividing a full 2pi wave over the length of each cell
+    ! we get these deltas https://en.wikipedia.org/wiki/Wave_vector#Definition
+
+    real::del_kx,del_ky,del_kz
+
+    k_x = (blockIdx%x-1)*blockDim%x + threadIdx%x
+    k_y = (blockIdx%y-1)*blockDim%y + threadIdx%y
+    k_z = (blockIdx%z-1)*blockDim%z + threadIdx%z
+
     
+    !######################################################
+    !Compute Gravitational Accelerations in Fourier Space
+    !#################################################
+
+    ! The transformed density grid in the reduced dimensions
+    ! is then mapped back onto itself as the acceleration grid
+    ! replacing the density grid it once was
+    ! this saves memory since we need to recompute density each
+    ! step anyways
+    
+    
+    constants =  -4*pi*G
+    ! From dividing a full 2pi wave over the length of each cell
+    ! we get these deltas https://en.wikipedia.org/wiki/Wave_vector#Definition
+    del_kx =  2*pi/nx
+    del_ky = 2*pi/ny
+    del_kz = 2*pi/nz
+
+    if (k_x <= nx .and. k_y<=ny .and. k_z <= (nz/2 +1)) then
+            ! Splitting positive and negative frequencies for x-y equivalents
+            if (k_x < nx/2) then
+                k1 = del_kx*k_x
+            else
+                k1 = del_kx*k_x - nx
+            endif
+            if (k_y < ny/2) then
+                k2 = del_ky*k_y
+            else
+                k2 = del_ky*k_y - ny
+            endif
+            
+            ! z freq always > 0
+
+            k3 = del_kz*k_z
+
+
+            !k * p(k) *(-4)*pi*G/|K|^2
+
+            K = (abs(k1)**2 + abs(k2)**2 + abs(k3)**2)**(-1)
+
+
+
+            !compute once
+            p_term = density_grid_c_d(k_x, k_y, k_z) * K * constants
+
+            ! Sets x,y,z accelerations in fourier space on device grid
+            gravity_grid_c_d(1, k_x, k_y, k_z) = k1 * p_term
+            gravity_grid_c_d(2, k_x, k_y, k_z) = k2 * p_term
+            gravity_grid_c_d(3, k_x, k_y, k_z) = k3 * p_term
+        endif
+    call syncthreads
+end subroutine compute_gravities
+
+attributes(global) subroutine normalize3d(arr,nx,ny,nz,factor)
+    implicit none
+    integer,value::nx,ny,nz
+    real, dimension(nx,ny,nz)::arr
+    integer::i,j,K
+    
+    real,value::factor
+    i = (blockIdx%x-1)*blockDim%x + threadIdx%x
+    j = (blockIdx%y-1)*blockDim%y + threadIdx%y
+    k = (blockIdx%z-1)*blockDim%z + threadIdx%z
+
+    if ( k <= nx .and. j<=ny .and. k <= nz) then
+        arr(i,j,k) = arr(i,j,k) *factor
+    endif
+end subroutine
+attributes(global) subroutine calculate_U(density_grid_c_d,nx,ny,nz,U)
+    implicit none
+    complex, Dimension(:,:,:):: density_grid_c_d
+    real,parameter:: pi = atan(1.0)*4 
+    integer,value::  nx,ny,nz
+
+    ! Iteration
+    integer::k_x,k_y,k_z
+    complex::k1,k2,k3
+    real::K, p_mag
+    real,value:: U
+
+
+    ! Wave number stuff
+
+    ! From dividing a full 2pi wave over the length of each cell
+    ! we get these deltas https://en.wikipedia.org/wiki/Wave_vector#Definition
+
+    real::del_kx,del_ky,del_kz
+
+    k_x = (blockIdx%x-1)*blockDim%x + threadIdx%x
+    k_y = (blockIdx%y-1)*blockDim%y + threadIdx%y
+    k_z = (blockIdx%z-1)*blockDim%z + threadIdx%z
+
+    
+    !######################################################
+    !Compute Potential in Fourier Space
+    !#################################################
+
+
+    ! From dividing a full 2pi wave over the length of each cell
+    ! we get these deltas https://en.wikipedia.org/wiki/Wave_vector#Definition
+    del_kx =  2*pi/nx
+    del_ky = 2*pi/ny
+    del_kz = 2*pi/nz
+
+    if (k_x <= nx .and. k_y<=ny .and. k_z < (nz/2 +1)) then
+            ! Splitting positive and negative frequencies for x-y equivalents
+            if (k_x < nx/2) then
+                k1 = del_kx*k_x
+            else
+                k1 = del_kx*k_x - nx
+            endif
+            if (k_y < ny/2) then
+                k2 = del_ky*k_y
+            else
+                k2 = del_ky*k_y - ny
+            endif
+        
+            ! z freq always > 0
+
+            k3 = del_kz*k_z
+
+
+            !k * p(k) *(-4)*pi*G/|K|^2
+
+            K = 1/(abs(k1)**2 + abs(k2)**2 + abs(k3)**2)
+
+            if (k_x > 0) then       
+
+                ! may have errors, debugging
+                p_mag = density_grid_c_d(k_x,k_y,k_z)
+                U = U + p_mag*K
+            end if
+
+        endif
+    call syncthreads
+end subroutine calculate_U
+attributes(global) subroutine integration_step(particles_d, N,dt)
+    implicit none
+    integer :: i
+    integer, value::N
+    real, dimension(:,:) :: particles_d
+    real, value:: dt
+
+
+    i = (blockIdx%x-1)*blockDim%x + threadIdx%x
+
+    !******************************
+    ! 2nd order Leapfrog Integration
+    !******************************
+
+    ! keep in mind, but avoiding the copy for such a huge
+    ! set of 100M particles on device
+    ! x = particles_d(1:3,:)
+    ! v = particles_d(4:6,:)
+    ! a = particles_d(7:9,:)
+
+    ! note for other guys, i think remember <= here since fortran arrays are inclusive of N
+    if (i<= N) then
+        ! kick
+        particles_d(4:6,i) = particles_d(4:6,i) + particles_d(7:9,i)*dt*0.5
+
+        !drift
+        particles_d(1:3,i) = particles_d(1:3,i)+particles_d(4:6,i)*dt
+
+        !kick
+        particles_d(4:6,i) =particles_d(4:6,i)+particles_d(7:9,i)*dt*0.5
+
+    endif
+
+end subroutine integration_step
+attributes(global) subroutine calculate_KE(particles_d, N,m,smbh1_m,smbh2_m,KE)
+
+    real, dimension(:,:) :: particles_d
+    integer,value::N
+    real,value:: m,smbh1_m,smbh2_m
+
+    real,value:: KE
+    real,dimension(3),device::v_i
+    i = (blockIdx%x-1)*blockDim%x + threadIdx%x
+    
+
+    if (i==1) then
+        
+        ! Add KE for Supermassive seperately 
+        ! assuming it is particle 1 (index 1)
+
+        ! get velocities
+        v_i = particles_d(4:6,1)
+        KE = KE + smbh1_m* 0.5* sum(v_i**2)
+    else if(i==2)then
+        ! Add KE for Supermassive seperately 
+        ! assuming it is particle 2 (index 2)
+        ! get velocities
+        v_i = particles_d(4:6,2)
+        KE = KE + smbh2_m* 0.5* sum(v_i**2)
+    else if (i<=N) then
+        ! get velocities
+
+        v_i = particles_d(4:6,i)
+
+        KE = KE + m* 0.5* sum(v_i**2)
+    
+    endif
+end subroutine calculate_KE
+! A in works Subroutine that does particle to gid on GPU
+attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
+    use cudafor
+    implicit none
+    integer, value :: N, nx, ny, nz
+    real(kind(0.0)), value :: dx, dy, dz,smbh1_m, smbh2_m
+    real(kind(0.0)),dimension(:,:),device:: particles_d
+    real,dimension(:,:,:),device,intent(inout)::density_grid_r_d
+
+    ! Thread and block indices
+    integer :: idx, ix, iy, iz, thread_id,istat
+    real(kind(0.0)) :: x, y, z, m
+    real(kind(0.0)) :: x_rel, y_rel, z_rel
+    real(kind(0.0)) :: wx0, wx1, wy0, wy1, wz0, wz1
+    real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, x_i, y_j, z_k
+    
+
+    ! predefined
+    x_min = -1.5
+    x_max = 1.5
+    y_min = -1.5
+    y_max = 1.5
+    z_min = -1.5
+    z_max = 1.5
+    delta = (x_max - x_min) / ((nx/2)-1)
+
+    !compute global thread ID
+    thread_id = (blockIdx%x -1) * blockDim%x + threadIdx%x
+    if (thread_id >= N) return
+
+    !read particle positions 
+    x = particles_d(1,thread_id)
+    y = particles_d(2,thread_id)
+    z = particles_d(3,thread_id)
+
+    ! Assign mass based on particle ID
+    if (thread_id==1) then
+        m = smbh1_m 
+    end if 
+    if (thread_id==2) then
+        m = smbh2_m 
+    else
+        m = 1.0 /N 
+    end if 
+
+    ! Ignore particles outside the range [-1.5,1.5]
+    if (x < x_min .or. x > x_max .or. y < y_min .or. y > y_max .or. z < z_min .or. z > z_max) return
+    
+    ! determine grid cell indicies 
+    ix = int(floor((x-x_min)/delta)) + 1
+    iy = int(floor((y-y_min)/delta)) + 1
+    iz = int(floor((z-z_min)/delta)) + 1
+
+    !clamp indecies within bounds 
+    if (ix < 1) ix = 1
+    if (ix >= nx/2) ix = nx/2 -1
+    if (iy < 1) iy = 1
+    if (iy >= ny) iy = ny/2 -1
+    if (iz < 1) iz = 1
+    if (iz >= nz) iz = nz/2 -1
+
+    x_i = x_min + (ix - 1) * delta
+    y_j = y_min + (iy - 1) * delta
+    z_k = z_min + (iz - 1) * delta
+
+    x_rel = (x-x_i)/delta
+    y_rel = (y-y_j)/delta
+    z_rel = (z-z_k)/delta
+
+    ! Claculate weights
+    wx0 = 1.0 - x_rel 
+    wx1 = x_rel 
+    wy0 = 1.0 - y_rel 
+    wy1 = y_rel 
+    wz0 = 1.0 - z_rel 
+    wz1 = z_rel
+
+    ! Update density feiled (atomic operations to prevent race condition)
+
+    istat = atomicadd(density_grid_r_d(ix, iy, iz), m * wx0 * wy0 * wz0)
+    istat = atomicadd(density_grid_r_d(ix+1, iy, iz), m * wx1 * wy0 * wz0)
+    istat = atomicadd(density_grid_r_d(ix, iy+1, iz), m * wx0 * wy1 * wz0)
+    istat = atomicadd(density_grid_r_d(ix+1, iy+1, iz), m * wx1 * wy1 * wz0)
+    istat = atomicadd(density_grid_r_d(ix, iy, iz+1), m * wx0 * wy0 * wz1)
+    istat = atomicadd(density_grid_r_d(ix+1, iy, iz+1), m * wx1 * wy0 * wz1)
+    istat = atomicadd(density_grid_r_d(ix, iy+1, iz+1), m * wx0 * wy1 * wz1)
+    istat = atomicadd(density_grid_r_d(ix+1, iy+1, iz+1), m * wx1 * wy1 * wz1)
+
+end subroutine particle_to_grid_cuda
+
+    attributes(global) subroutine grid_to_particle_cuda(acceleration_grid, particles, N, nx, ny, nz, dx, dy, dz,smbh1_m, smbh2_m)
+    implicit none
+
+    integer, value :: N,nx,ny,nz
+    real(kind(0.0)), value :: dx,dy,dz
+    real(kind(0.0)) :: particles(9, N), acceleration_grid(3, nx, ny, nz)
+
+    !thread and block indecies 
+    integer :: i,ix,iy,iz,ix_shifted,iy_shifted,iz_shifted,thread_id
+    real, value :: smbh1_m,smbh2_m
+    real(kind(0.0)) :: x,y,z,m
+    real(kind(0.0)) :: x_rel,y_rel,z_rel
+    real(kind(0.0)) :: wx0, wx1, wy0, wy1, wz0, wz1
+    real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, x_i, y_j, z_k
+    real(kind(0.0)) :: acc_x , acc_y, acc_z
+
+    ! Predefined 
+    x_min = -1.5
+    x_max = 1.5
+    y_min = -1.5
+    y_max = 1.5
+    z_min = -1.5
+    z_max = 1.5
+    delta = (x_max - x_min) / real(nx/2 - 1)
+
+    ! Compte global thread ID
+    thread_id = (blockIdx%x - 1) * blockDim%x + threadIdx%x
+    if (thread_id > N) return 
+
+    ! Read particle positons 
+    x = particles(1, thread_id)
+    y = particles(2, thread_id)
+    z = particles(3, thread_id)
+
+    ! Assign mass based on particle ID
+    if (thread_id == 1) then 
+        m = smbh1_m
+    end if 
+    if  (thread_id == 2) then
+        m = smbh2_m
+    else 
+        m = 1/N 
+    end if 
+
+    ! Ignore particles outside the range [-1.5, 1.5]
+    if (x < x_min .or. x > x_max .or. y < y_min .or. y > y_max .or. z < z_min .or. z > z_max) return
+
+    ! Determine grid cell indecies 
+    ix = int(floor((x - x_min) / delta)) + 1
+    iy = int(floor((x - y_min) / delta)) + 1
+    iz = int(floor((z - z_min) / delta)) + 1
+
+    ! Clamp indices within bounds
+    if (ix < 1) ix = 1
+    if (ix >= nx / 2) ix = nx / 2 - 1
+    if (iy < 1) iy = 1
+    if (iy >= ny / 2) iy = ny / 2 - 1
+    if (iz < 1) iz = 1
+    if (iz >= nz / 2) iz = nz / 2 - 1
+
+    x_i = x_min + (ix - 1) * delta
+    y_j = y_min + (iy - 1) * delta
+    z_k = z_min + (iz - 1) * delta
+    
+    ! Calculate relative distances
+    x_rel = (x - x_i) / delta
+    y_rel = (y - y_j) / delta
+    z_rel = (z - z_k) / delta
+
+    ! Calculate weights 
+    wx0 = 1.0 - x_rel
+    wx1 = x_rel
+    wy0 = 1.0 - y_rel
+    wy1 = y_rel
+    wz0 = 1.0 - z_rel
+    wz1 = z_rel
+
+    !initialize accelerations 
+    acc_x = 0.0
+    acc_y = 0.0
+    acc_z = 0.0
+
+    ix_shifted = ix+nx/4
+    iy_shifted = iy+ny/4
+    iz_shifted = iz+nz/4
+
+    ! Interpolate acceleration from the grid to the particle position
+    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted, iz_shifted) * wx0 * wy0 * wz0
+    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted, iz_shifted) * wx1 * wy0 * wz0
+    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted + 1, iz_shifted) * wx0 * wy1 * wz0
+    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted + 1, iz_shifted) * wx1 * wy1 * wz0
+    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted, iz_shifted + 1) * wx0 * wy0 * wz1
+    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted, iz_shifted + 1) * wx1 * wy0 * wz1
+    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted + 1, iz_shifted + 1) * wx0 * wy1 * wz1
+    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted + 1, iz_shifted + 1) * wx1 * wy1 * wz1
+
+    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted, iz_shifted) * wx0 * wy0 * wz0
+    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted, iz_shifted) * wx1 * wy0 * wz0
+    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted + 1, iz_shifted) * wx0 * wy1 * wz0
+    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted + 1, iz_shifted) * wx1 * wy1 * wz0
+    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted, iz_shifted + 1) * wx0 * wy0 * wz1
+    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted, iz_shifted + 1) * wx1 * wy0 * wz1
+    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted + 1, iz_shifted + 1) * wx0 * wy1 * wz1
+    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted + 1, iz_shifted + 1) * wx1 * wy1 * wz1
+
+    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted, iz_shifted) * wx0 * wy0 * wz0
+    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted, iz_shifted) * wx1 * wy0 * wz0
+    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted + 1, iz_shifted) * wx0 * wy1 * wz0
+    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted + 1, iz_shifted) * wx1 * wy1 * wz0
+    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted, iz_shifted + 1) * wx0 * wy0 * wz1
+    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted, iz_shifted + 1) * wx1 * wy0 * wz1
+    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted + 1, iz_shifted + 1) * wx0 * wy1 * wz1
+    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted + 1, iz_shifted + 1) * wx1 * wy1 * wz1
+
+    ! update particle 
+    particles(7, thread_id) = acc_x
+    particles(8, thread_id) = acc_y
+    particles(9, thread_id) = acc_z
+end subroutine grid_to_particle_cuda 
+end module device_ops
+    
+
 module cufft_interface
 
 integer, public :: CUFFT_FORWARD = -1
@@ -90,7 +537,7 @@ end module cufft_interface
     
 
 
-subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_d,particles_d,N_d,m_d,smbh1_m_d,smbh2_m_d,E)
+subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N,m,smbh1_m,smbh2_m,E)
     !###########################################################
     ! Instructions:
     !      This function is NON Desctructive, ie not operating
@@ -119,11 +566,11 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_
     !   Host Initializations
     !#########################
     
-    integer,intent(in)::  nx,ny,nz
+    integer::  nx,ny,nz,N
    
 
     ! Energy compute_acceleration
-    real::U,E,KE
+    real::U,E,KE,m,smbh1_m,smbh2_m
     
     integer::V
 
@@ -144,24 +591,26 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_
     !   Device Initialization
     !###################################    
     !################################### 
-    integer,device:: nx_d,ny_d,nz_d,N_d
-    real, device :: U_d,KE_d,m_d,smbh1_m_d,smbh2_m_d
-    real, Dimension(:,:),allocatable,device::particles_d
-    real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
-    complex(fp_kind), Dimension(:,:,:), allocatable,device:: density_grid_c_d
 
+    real,allocatable,Dimension(:,:),device,intent(inout)::particles_d
+    real,allocatable,Dimension(:,:,:),device,intent(inout)::density_grid_r_d
+    complex,allocatable, Dimension(:,:,:),device, intent(inout)::density_grid_c_d
 
-
+    
     !#######################################
     !   Forward FFT
     !#######################################
-    
+    print*,"beginning fft"
+   
 
+    
     ! 3D R2C Fourier Transform plan setup
-    call cufftPlan3d(plan, nx,ny,nz,CUFFT_R2C)
+    call cufftPlan3d(plan,nx,ny,nz,CUFFT_R2C)
+    print*,"FINISHED     planning"
 
     ! 3D R2C Fourier Transform execution
     call cufftExecR2C(plan,density_grid_r_d,density_grid_c_d)
+    print*,"FINISHED     fft"
 
     !######################################################
     !Compute Gravitational Potential in Fourier Space
@@ -175,10 +624,13 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_
 
     U=0.0
     KE = 0.0
-    call calculate_U<<<256,256>>>(density_grid_c_d,nx_d,ny_d,nz_d,U_d)
+    print*, "got to just before potential launch"
+    call calculate_U<<<256,256>>>(density_grid_c_d,nx,ny,nz,U)
 
- 
-    call calculate_KE<<<256,256>>>(particles_d,N_d,m_d,smbh1_m_d,smbh2_m_d,KE_d)
+    print*, "Calculated potential"
+    call calculate_KE<<<256,256>>>(particles_d,N,m,smbh1_m,smbh2_m,KE)
+    print*, "Calculated KE"
+
     !Destroy Plan
     call cufftDestroy(plan)
 
@@ -190,455 +642,6 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,nx_d,ny_d,nz_
 
     
 end subroutine check_energy
-
-module device_ops
-    contains
-    attributes(global) subroutine compute_gravities(gravity_grid_c_d,density_grid_c_d,nx,ny,nz)
-        implicit none
-        complex, Dimension(:,:,:):: density_grid_c_d
-
-        ! Real and complex gravities on gpu
-        complex, Dimension(:,:,:,:):: gravity_grid_c_d
-        real :: G = 1 ! Natural Units
-        real,parameter:: pi = atan(1.0)*4 
-        real:: constants
-        complex:: p_term
-        integer,value::  nx,ny,nz
-
-        ! Iteration
-        integer::k_x,k_y,k_z
-        complex::k1,k2,k3
-        real::K, p_mag
-
-        ! Wave number stuff
-
-        ! From dividing a full 2pi wave over the length of each cell
-        ! we get these deltas https://en.wikipedia.org/wiki/Wave_vector#Definition
-
-        real::del_kx,del_ky,del_kz
-
-        k_x = (blockIdx%x-1)*blockDim%x + threadIdx%x
-        k_y = (blockIdx%y-1)*blockDim%y + threadIdx%y
-        k_z = (blockIdx%z-1)*blockDim%z + threadIdx%z
-
-        
-        !######################################################
-        !Compute Gravitational Accelerations in Fourier Space
-        !#################################################
-
-        ! The transformed density grid in the reduced dimensions
-        ! is then mapped back onto itself as the acceleration grid
-        ! replacing the density grid it once was
-        ! this saves memory since we need to recompute density each
-        ! step anyways
-        
-        
-        constants =  -4*pi*G
-        ! From dividing a full 2pi wave over the length of each cell
-        ! we get these deltas https://en.wikipedia.org/wiki/Wave_vector#Definition
-        del_kx =  2*pi/nx
-        del_ky = 2*pi/ny
-        del_kz = 2*pi/nz
-
-        if (k_x <= nx .and. k_y<=ny .and. k_z <= (nz/2 +1)) then
-                ! Splitting positive and negative frequencies for x-y equivalents
-                if (k_x < nx/2) then
-                    k1 = del_kx*k_x
-                else
-                    k1 = del_kx*k_x - nx
-                endif
-                if (k_y < ny/2) then
-                    k2 = del_ky*k_y
-                else
-                    k2 = del_ky*k_y - ny
-                endif
-                
-                ! z freq always > 0
-
-                k3 = del_kz*k_z
-
-
-                !k * p(k) *(-4)*pi*G/|K|^2
-
-                K = (abs(k1)**2 + abs(k2)**2 + abs(k3)**2)**(-1)
-
-
-
-                !compute once
-                p_term = density_grid_c_d(k_x, k_y, k_z) * K * constants
-
-                ! Sets x,y,z accelerations in fourier space on device grid
-                gravity_grid_c_d(1, k_x, k_y, k_z) = k1 * p_term
-                gravity_grid_c_d(2, k_x, k_y, k_z) = k2 * p_term
-                gravity_grid_c_d(3, k_x, k_y, k_z) = k3 * p_term
-            endif
-        call syncthreads
-    end subroutine compute_gravities
-    
-    attributes(global) subroutine normalize3d(arr,nx,ny,nz,factor)
-        implicit none
-        integer,value::nx,ny,nz
-        real, dimension(nx,ny,nz)::arr
-        integer::i,j,K
-        
-        real,value::factor
-        i = (blockIdx%x-1)*blockDim%x + threadIdx%x
-        j = (blockIdx%y-1)*blockDim%y + threadIdx%y
-        k = (blockIdx%z-1)*blockDim%z + threadIdx%z
-
-        if ( k <= nx .and. j<=ny .and. k <= nz) then
-            arr(i,j,k) = arr(i,j,k) *factor
-        endif
-    end subroutine
-    attributes(global) subroutine calculate_U(density_grid_c_d,nx,ny,nz,U)
-        implicit none
-        complex, Dimension(:,:,:):: density_grid_c_d
-        real,parameter:: pi = atan(1.0)*4 
-        integer,value::  nx,ny,nz
-
-        ! Iteration
-        integer::k_x,k_y,k_z
-        complex::k1,k2,k3
-        real::K, p_mag
-        real:: U
-    
-
-        ! Wave number stuff
-
-        ! From dividing a full 2pi wave over the length of each cell
-        ! we get these deltas https://en.wikipedia.org/wiki/Wave_vector#Definition
-
-        real::del_kx,del_ky,del_kz
-
-        k_x = (blockIdx%x-1)*blockDim%x + threadIdx%x
-        k_y = (blockIdx%y-1)*blockDim%y + threadIdx%y
-        k_z = (blockIdx%z-1)*blockDim%z + threadIdx%z
-
-        
-        !######################################################
-        !Compute Potential in Fourier Space
-        !#################################################
-
-    
-        ! From dividing a full 2pi wave over the length of each cell
-        ! we get these deltas https://en.wikipedia.org/wiki/Wave_vector#Definition
-        del_kx =  2*pi/nx
-        del_ky = 2*pi/ny
-        del_kz = 2*pi/nz
-
-        if (k_x <= nx .and. k_y<=ny .and. k_z < (nz/2 +1)) then
-                ! Splitting positive and negative frequencies for x-y equivalents
-                if (k_x < nx/2) then
-                    k1 = del_kx*k_x
-                else
-                    k1 = del_kx*k_x - nx
-                endif
-                if (k_y < ny/2) then
-                    k2 = del_ky*k_y
-                else
-                    k2 = del_ky*k_y - ny
-                endif
-            
-                ! z freq always > 0
-
-                k3 = del_kz*k_z
-
-
-                !k * p(k) *(-4)*pi*G/|K|^2
-
-                K = 1/(abs(k1)**2 + abs(k2)**2 + abs(k3)**2)
-
-                if (k_x > 0) then       
-
-                    ! may have errors, debugging
-                    p_mag = density_grid_c_d(k_x,k_y,k_z)
-                    U = U + p_mag*K
-                end if
-
-            endif
-        call syncthreads
-    end subroutine calculate_U
-    attributes(global) subroutine integration_step(particles_d, N,dt)
-        implicit none
-        integer :: i
-        integer, value::N
-        real, dimension(:,:) :: particles_d
-        real, value:: dt
-    
-
-        i = (blockIdx%x-1)*blockDim%x + threadIdx%x
-
-        !******************************
-        ! 2nd order Leapfrog Integration
-        !******************************
-
-        ! keep in mind, but avoiding the copy for such a huge
-        ! set of 100M particles on device
-        ! x = particles_d(1:3,:)
-        ! v = particles_d(4:6,:)
-        ! a = particles_d(7:9,:)
-
-        ! note for other guys, i think remember <= here since fortran arrays are inclusive of N
-        if (i<= N) then
-            ! kick
-            particles_d(4:6,i) = particles_d(4:6,i) + particles_d(7:9,i)*dt*0.5
-
-            !drift
-            particles_d(1:3,i) = particles_d(1:3,i)+particles_d(4:6,i)*dt
-
-            !kick
-            particles_d(4:6,i) =particles_d(4:6,i)+particles_d(7:9,i)*dt*0.5
-
-        endif
-
-    end subroutine integration_step
-    attributes(global) subroutine calculate_KE(particles_d, N,m,smbh1_m,smbh2_m,KE)
-
-        real, dimension(:,:) :: particles_d
-        integer::N
-        real:: m,smbh1_m,smbh2_m
-
-        real:: KE
-        real,dimension(3),device::v_i
-        i = (blockIdx%x-1)*blockDim%x + threadIdx%x
-        
-
-        if (i==1) then
-            
-            ! Add KE for Supermassive seperately 
-            ! assuming it is particle 1 (index 1)
-
-            ! get velocities
-            v_i = particles_d(4:6,1)
-            KE = KE + smbh1_m* 0.5* sum(v_i**2)
-        else if(i==2)then
-            ! Add KE for Supermassive seperately 
-            ! assuming it is particle 2 (index 2)
-            ! get velocities
-            v_i = particles_d(4:6,2)
-            KE = KE + smbh2_m* 0.5* sum(v_i**2)
-        else if (i<=N) then
-            ! get velocities
-
-            v_i = particles_d(4:6,i)
-
-            KE = KE + m* 0.5* sum(v_i**2)
-        
-        endif
-    end subroutine calculate_KE
-    ! A in works Subroutine that does particle to gid on GPU
-    attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
-        use cudafor
-        implicit none
-        integer, value :: N, nx, ny, nz
-        real(kind(0.0)), value :: dx, dy, dz,smbh1_m, smbh2_m
-        real(kind(0.0)),dimension(:,:):: particles_d
-        real,dimension(:,:,:)::density_grid_r_d
-
-        ! Thread and block indices
-        integer :: idx, ix, iy, iz, thread_id,istat
-        real(kind(0.0)) :: x, y, z, m
-        real(kind(0.0)) :: x_rel, y_rel, z_rel
-        real(kind(0.0)) :: wx0, wx1, wy0, wy1, wz0, wz1
-        real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, x_i, y_j, z_k
-        
-
-        ! predefined
-        x_min = -1.5
-        x_max = 1.5
-        y_min = -1.5
-        y_max = 1.5
-        z_min = -1.5
-        z_max = 1.5
-        delta = (x_max - x_min) / ((nx/2)-1)
-
-        !compute global thread ID
-        thread_id = (blockIdx%x -1) * blockDim%x + threadIdx%x
-        if (thread_id >= N) return
-
-        !read particle positions 
-        x = particles_d(1,thread_id)
-        y = particles_d(2,thread_id)
-        z = particles_d(3,thread_id)
-
-        ! Assign mass based on particle ID
-        if (thread_id==1) then
-            m = smbh1_m 
-        end if 
-        if (thread_id==2) then
-            m = smbh2_m 
-        else
-            m = 1.0 /N 
-        end if 
-
-        ! Ignore particles outside the range [-1.5,1.5]
-        if (x < x_min .or. x > x_max .or. y < y_min .or. y > y_max .or. z < z_min .or. z > z_max) return
-        
-        print*, "a thread got here 1"
-        ! determine grid cell indicies 
-        ix = int(floor((x-x_min)/delta)) + 1
-        iy = int(floor((y-y_min)/delta)) + 1
-        iz = int(floor((z-z_min)/delta)) + 1
-
-        !clamp indecies within bounds 
-        if (ix < 1) ix = 1
-        if (ix >= nx/2) ix = nx/2 -1
-        if (iy < 1) iy = 1
-        if (iy >= ny) iy = ny/2 -1
-        if (iz < 1) iz = 1
-        if (iz >= nz) iz = nz/2 -1
-
-        x_i = x_min + (ix - 1) * delta
-        y_j = y_min + (iy - 1) * delta
-        z_k = z_min + (iz - 1) * delta
-
-        x_rel = (x-x_i)/delta
-        y_rel = (y-y_j)/delta
-        z_rel = (z-z_k)/delta
-
-        ! Claculate weights
-        wx0 = 1.0 - x_rel 
-        wx1 = x_rel 
-        wy0 = 1.0 - y_rel 
-        wy1 = y_rel 
-        wz0 = 1.0 - z_rel 
-        wz1 = z_rel
-
-        ! Update density feiled (atomic operations to prevent race condition)
-
-        istat = atomicadd(density_grid_r_d(ix, iy, iz), m * wx0 * wy0 * wz0)
-        istat = atomicadd(density_grid_r_d(ix+1, iy, iz), m * wx1 * wy0 * wz0)
-        istat = atomicadd(density_grid_r_d(ix, iy+1, iz), m * wx0 * wy1 * wz0)
-        istat = atomicadd(density_grid_r_d(ix+1, iy+1, iz), m * wx1 * wy1 * wz0)
-        istat = atomicadd(density_grid_r_d(ix, iy, iz+1), m * wx0 * wy0 * wz1)
-        istat = atomicadd(density_grid_r_d(ix+1, iy, iz+1), m * wx1 * wy0 * wz1)
-        istat = atomicadd(density_grid_r_d(ix, iy+1, iz+1), m * wx0 * wy1 * wz1)
-        istat = atomicadd(density_grid_r_d(ix+1, iy+1, iz+1), m * wx1 * wy1 * wz1)
-
-    end subroutine particle_to_grid_cuda
-
-    attributes(global) subroutine grid_to_particle_cuda(acceleration_grid, particles, N, nx, ny, nz, dx, dy, dz,smbh1_m, smbh2_m)
-        implicit none
-
-        integer, value :: N,nx,ny,nz
-        real(kind(0.0)), value :: dx,dy,dz
-        real(kind(0.0)) :: particles(9, N), acceleration_grid(3, nx, ny, nz)
-
-        !thread and block indecies 
-        integer :: i,ix,iy,iz,ix_shifted,iy_shifted,iz_shifted,thread_id
-        real, value :: smbh1_m,smbh2_m
-        real(kind(0.0)) :: x,y,z,m
-        real(kind(0.0)) :: x_rel,y_rel,z_rel
-        real(kind(0.0)) :: wx0, wx1, wy0, wy1, wz0, wz1
-        real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, x_i, y_j, z_k
-        real(kind(0.0)) :: acc_x , acc_y, acc_z
-
-        ! Predefined 
-        x_min = -1.5
-        x_max = 1.5
-        y_min = -1.5
-        y_max = 1.5
-        z_min = -1.5
-        z_max = 1.5
-        delta = (x_max - x_min) / real(nx/2 - 1)
-
-        ! Compte global thread ID
-        thread_id = (blockIdx%x - 1) * blockDim%x + threadIdx%x
-        if (thread_id > N) return 
-
-        ! Read particle positons 
-        x = particles(1, thread_id)
-        y = particles(2, thread_id)
-        z = particles(3, thread_id)
-
-        ! Assign mass based on particle ID
-        if (thread_id == 1) then 
-            m = smbh1_m
-        end if 
-        if  (thread_id == 2) then
-            m = smbh2_m
-        else 
-            m = 1/N 
-        end if 
-
-        ! Ignore particles outside the range [-1.5, 1.5]
-        if (x < x_min .or. x > x_max .or. y < y_min .or. y > y_max .or. z < z_min .or. z > z_max) return
-
-        ! Determine grid cell indecies 
-        ix = int(floor((x - x_min) / delta)) + 1
-        iy = int(floor((x - y_min) / delta)) + 1
-        iz = int(floor((z - z_min) / delta)) + 1
-
-        ! Clamp indices within bounds
-        if (ix < 1) ix = 1
-        if (ix >= nx / 2) ix = nx / 2 - 1
-        if (iy < 1) iy = 1
-        if (iy >= ny / 2) iy = ny / 2 - 1
-        if (iz < 1) iz = 1
-        if (iz >= nz / 2) iz = nz / 2 - 1
-
-        x_i = x_min + (ix - 1) * delta
-        y_j = y_min + (iy - 1) * delta
-        z_k = z_min + (iz - 1) * delta
-        
-        ! Calculate relative distances
-        x_rel = (x - x_i) / delta
-        y_rel = (y - y_j) / delta
-        z_rel = (z - z_k) / delta
-
-        ! Calculate weights 
-        wx0 = 1.0 - x_rel
-        wx1 = x_rel
-        wy0 = 1.0 - y_rel
-        wy1 = y_rel
-        wz0 = 1.0 - z_rel
-        wz1 = z_rel
-
-        !initialize accelerations 
-        acc_x = 0.0
-        acc_y = 0.0
-        acc_z = 0.0
-
-        ix_shifted = ix+nx/4
-        iy_shifted = iy+ny/4
-        iz_shifted = iz+nz/4
-
-        ! Interpolate acceleration from the grid to the particle position
-        acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted, iz_shifted) * wx0 * wy0 * wz0
-        acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted, iz_shifted) * wx1 * wy0 * wz0
-        acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted + 1, iz_shifted) * wx0 * wy1 * wz0
-        acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted + 1, iz_shifted) * wx1 * wy1 * wz0
-        acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted, iz_shifted + 1) * wx0 * wy0 * wz1
-        acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted, iz_shifted + 1) * wx1 * wy0 * wz1
-        acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted + 1, iz_shifted + 1) * wx0 * wy1 * wz1
-        acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted + 1, iz_shifted + 1) * wx1 * wy1 * wz1
-
-        acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted, iz_shifted) * wx0 * wy0 * wz0
-        acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted, iz_shifted) * wx1 * wy0 * wz0
-        acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted + 1, iz_shifted) * wx0 * wy1 * wz0
-        acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted + 1, iz_shifted) * wx1 * wy1 * wz0
-        acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted, iz_shifted + 1) * wx0 * wy0 * wz1
-        acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted, iz_shifted + 1) * wx1 * wy0 * wz1
-        acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted + 1, iz_shifted + 1) * wx0 * wy1 * wz1
-        acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted + 1, iz_shifted + 1) * wx1 * wy1 * wz1
-
-        acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted, iz_shifted) * wx0 * wy0 * wz0
-        acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted, iz_shifted) * wx1 * wy0 * wz0
-        acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted + 1, iz_shifted) * wx0 * wy1 * wz0
-        acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted + 1, iz_shifted) * wx1 * wy1 * wz0
-        acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted, iz_shifted + 1) * wx0 * wy0 * wz1
-        acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted, iz_shifted + 1) * wx1 * wy0 * wz1
-        acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted + 1, iz_shifted + 1) * wx0 * wy1 * wz1
-        acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted + 1, iz_shifted + 1) * wx1 * wy1 * wz1
-
-        ! update particle 
-        particles(7, thread_id) = acc_x
-        particles(8, thread_id) = acc_y
-        particles(9, thread_id) = acc_z
-    end subroutine grid_to_particle_cuda 
-
-end module device_ops
-    
 
 
 subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_grid_c_d,nx,ny,nz,N)
@@ -1189,7 +1192,12 @@ program nbody_sim
 
     
     ! Allocate input and output arrays of cufft on the device memory (gpu)
-    allocate(density_grid_r_d(nx,ny,nz))
+    allocate(density_grid_r_d(nx, ny, nz), stat=ierr)
+    if (ierr /= 0) then
+        print *, "Allocation of density_grid_r_d failed with error code:", ierr
+        stop
+    end if
+    
     
     ! https://docs.nvidia.com/cuda/cufft/index.html#multidimensional-transforms
     allocate(density_grid_c_d(nx,ny,(nz/2 +1)))
@@ -1201,10 +1209,6 @@ program nbody_sim
 
     ! allocation particles on device
     allocate(particles_d(9,N))
-
-
-    if (.not. allocated(density_grid_r_d)) stop "Error: density_grid_r_d not allocated"
-    if (.not. allocated(particles_d)) stop "Error: particles_d not allocated"
 
     
     !##############################################
@@ -1254,7 +1258,8 @@ program nbody_sim
 
     call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
     call cudaDeviceSynchronize()
-
+    
+    
     print*, 'Got past particle to grid'
 
     !call check_energy(density,nx,ny,nz,particles,N,smbh_m,E_0)
@@ -1264,10 +1269,10 @@ program nbody_sim
         ! These 2 will go inside a do loop until end condition
         !call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
 
-        print*, 'Got past particle to grid'
         ! add an if for however many steps 
         ! again, like fft stays on gpu but composes with a fft call
-        call check_energy(density_grid_r_d,nx,ny,nz,particles_d,N,smbh1_m,smbh2_m,E)
+        call check_energy(density_grid_r_d, density_grid_c_d, nx, ny, nz, particles_d, N, m, smbh1_m, smbh2_m, E)
+
         print*, 'Got past second energy check'
 
 
