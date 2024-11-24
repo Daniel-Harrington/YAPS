@@ -592,9 +592,9 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
     !###################################    
     !################################### 
 
-    real,allocatable,Dimension(:,:),device,intent(inout)::particles_d
-    real,allocatable,Dimension(:,:,:),device,intent(inout)::density_grid_r_d
-    complex,allocatable, Dimension(:,:,:),device, intent(inout)::density_grid_c_d
+    real,Dimension(:,:),device::particles_d
+    real,Dimension(:,:,:),device::density_grid_r_d
+    complex,Dimension(:,:,:),device::density_grid_c_d
 
     
     !#######################################
