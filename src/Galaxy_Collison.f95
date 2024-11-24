@@ -432,7 +432,8 @@ module device_ops
         implicit none
         integer, value :: N, nx, ny, nz
         real(kind(0.0)), value :: dx, dy, dz,smbh1_m, smbh2_m
-        real(kind(0.0)), device :: particles_d(9, N), density_grid_r_d(nx, ny, nz)
+        real(kind(0.0)),dimension(:,:):: particles_d
+        real,dimension(:,:,:)::density_grid_r_d
 
         ! Thread and block indices
         integer :: idx, ix, iy, iz, thread_id,istat
@@ -440,6 +441,7 @@ module device_ops
         real(kind(0.0)) :: x_rel, y_rel, z_rel
         real(kind(0.0)) :: wx0, wx1, wy0, wy1, wz0, wz1
         real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, x_i, y_j, z_k
+        
 
         ! predefined
         x_min = -1.5
@@ -453,7 +455,6 @@ module device_ops
         !compute global thread ID
         thread_id = (blockIdx%x -1) * blockDim%x + threadIdx%x
         if (thread_id >= N) return
-        print*, "a thread got here 0"
 
         !read particle positions 
         x = particles_d(1,thread_id)
@@ -486,7 +487,6 @@ module device_ops
         if (iy >= ny) iy = ny/2 -1
         if (iz < 1) iz = 1
         if (iz >= nz) iz = nz/2 -1
-        print*, "a thread got here 2"
 
         x_i = x_min + (ix - 1) * delta
         y_j = y_min + (iy - 1) * delta
@@ -505,7 +505,6 @@ module device_ops
         wz1 = z_rel
 
         ! Update density feiled (atomic operations to prevent race condition)
-        print*, "a thread got here 3"
 
         istat = atomicadd(density_grid_r_d(ix, iy, iz), m * wx0 * wy0 * wz0)
         istat = atomicadd(density_grid_r_d(ix+1, iy, iz), m * wx1 * wy0 * wz0)
@@ -515,7 +514,6 @@ module device_ops
         istat = atomicadd(density_grid_r_d(ix+1, iy, iz+1), m * wx1 * wy0 * wz1)
         istat = atomicadd(density_grid_r_d(ix, iy+1, iz+1), m * wx0 * wy1 * wz1)
         istat = atomicadd(density_grid_r_d(ix+1, iy+1, iz+1), m * wx1 * wy1 * wz1)
-        print*, "a thread got here 4"
 
     end subroutine particle_to_grid_cuda
 
@@ -524,7 +522,7 @@ module device_ops
 
         integer, value :: N,nx,ny,nz
         real(kind(0.0)), value :: dx,dy,dz
-        real(kind(0.0)), device :: particles(9, N), acceleration_grid(3, nx, ny, nz)
+        real(kind(0.0)) :: particles(9, N), acceleration_grid(3, nx, ny, nz)
 
         !thread and block indecies 
         integer :: i,ix,iy,iz,ix_shifted,iy_shifted,iz_shifted,thread_id
@@ -550,8 +548,8 @@ module device_ops
 
         ! Read particle positons 
         x = particles(1, thread_id)
-        y = particles(1, thread_id)
-        z = particles(1, thread_id)
+        y = particles(2, thread_id)
+        z = particles(3, thread_id)
 
         ! Assign mass based on particle ID
         if (thread_id == 1) then 
@@ -1160,13 +1158,12 @@ subroutine grid_to_particle(acceleration_grid,particles, N, nx, ny, nz, dx, dy, 
 program nbody_sim
     use precision
     use device_ops
-    
     use cufft_interface
     implicit none
-    integer, parameter::N = 100000000
-    integer, parameter:: nx =512 , ny = 512, nz = 256
-    integer:: checkpoint,steps,k,i
-    real:: m,smbh1_m,smbh2_m,E_0,E
+    integer, parameter::N = 100
+    integer, parameter:: nx =32 , ny = 32, nz = 16
+    integer:: checkpoint,steps,k,i,ierr
+    real:: m,smbh1_m,smbh2_m,E_0,E,dx,dy,dz
     real, dimension(9,N)::particles
     real, parameter::dt = 10e-5 ! Needed to keep Energy change way below 10^-5
     real,dimension(3)::p
@@ -1179,7 +1176,7 @@ program nbody_sim
     ! #######################################
     ! Particles on GPU
     real, Dimension(:,:),allocatable, device::particles_d
-    real,device::dt_d,nx_d,ny_d,nz_d,m_d,smbh1_m_d,smbh2_m_d,dx,dy,dz
+    real,device::dt_d,nx_d,ny_d,nz_d,m_d,smbh1_m_d,smbh2_m_d
     integer,device:: N_d
 
     ! Real and complex density on gpu
@@ -1206,6 +1203,8 @@ program nbody_sim
     allocate(particles_d(9,N))
 
 
+    if (.not. allocated(density_grid_r_d)) stop "Error: density_grid_r_d not allocated"
+    if (.not. allocated(particles_d)) stop "Error: particles_d not allocated"
 
     
     !##############################################
@@ -1221,6 +1220,9 @@ program nbody_sim
     smbh2_m = smbh1_m/10
     m = 1/N
     E = 0
+    dx = 1.0/(nx-1) 
+    dy = 1.0/(ny-1)
+    dz = 1.0/(nz-1)
     !##############################################
     !
     !   Device(GPU) INITIALIZATIONS
@@ -1235,9 +1237,7 @@ program nbody_sim
     smbh2_m_d = smbh2_m
     m_d = m
     N_d = N
-    dx = 1.0/(nx-1) 
-    dy = 1.0/(ny-1)
-    dz = 1.0/(nz-1)
+  
     dt_d = dt
 
 
@@ -1251,7 +1251,10 @@ program nbody_sim
     print*, 'Got past initialization'
 
 
+
     call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
+    call cudaDeviceSynchronize()
+
     print*, 'Got past particle to grid'
 
     !call check_energy(density,nx,ny,nz,particles,N,smbh_m,E_0)
@@ -1259,7 +1262,7 @@ program nbody_sim
 
     do i=1, 1000
         ! These 2 will go inside a do loop until end condition
-        call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
+        !call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
 
         print*, 'Got past particle to grid'
         ! add an if for however many steps 
