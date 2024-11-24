@@ -453,6 +453,7 @@ module device_ops
         !compute global thread ID
         thread_id = (blockIdx%x -1) * blockDim%x + threadIdx%x
         if (thread_id >= N) return
+        print*, "a thread got here 0"
 
         !read particle positions 
         x = particles_d(1,thread_id)
@@ -471,7 +472,8 @@ module device_ops
 
         ! Ignore particles outside the range [-1.5,1.5]
         if (x < x_min .or. x > x_max .or. y < y_min .or. y > y_max .or. z < z_min .or. z > z_max) return
-
+        
+        print*, "a thread got here 1"
         ! determine grid cell indicies 
         ix = int(floor((x-x_min)/delta)) + 1
         iy = int(floor((y-y_min)/delta)) + 1
@@ -484,6 +486,7 @@ module device_ops
         if (iy >= ny) iy = ny/2 -1
         if (iz < 1) iz = 1
         if (iz >= nz) iz = nz/2 -1
+        print*, "a thread got here 2"
 
         x_i = x_min + (ix - 1) * delta
         y_j = y_min + (iy - 1) * delta
@@ -502,7 +505,8 @@ module device_ops
         wz1 = z_rel
 
         ! Update density feiled (atomic operations to prevent race condition)
-      
+        print*, "a thread got here 3"
+
         istat = atomicadd(density_grid_r_d(ix, iy, iz), m * wx0 * wy0 * wz0)
         istat = atomicadd(density_grid_r_d(ix+1, iy, iz), m * wx1 * wy0 * wz0)
         istat = atomicadd(density_grid_r_d(ix, iy+1, iz), m * wx0 * wy1 * wz0)
@@ -511,6 +515,8 @@ module device_ops
         istat = atomicadd(density_grid_r_d(ix+1, iy, iz+1), m * wx1 * wy0 * wz1)
         istat = atomicadd(density_grid_r_d(ix, iy+1, iz+1), m * wx0 * wy1 * wz1)
         istat = atomicadd(density_grid_r_d(ix+1, iy+1, iz+1), m * wx1 * wy1 * wz1)
+        print*, "a thread got here 4"
+
     end subroutine particle_to_grid_cuda
 
     attributes(global) subroutine grid_to_particle_cuda(acceleration_grid, particles, N, nx, ny, nz, dx, dy, dz,smbh1_m, smbh2_m)
