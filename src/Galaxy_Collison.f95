@@ -1224,8 +1224,8 @@ program nbody_sim
     use cufft_interface
     use your_mom
     implicit none
-    integer, parameter::N = 100000000
-    integer, parameter:: nx =512 , ny = 512, nz = 256
+    integer, parameter::N = 10
+    integer, parameter:: nx =4 , ny = 4, nz = 4
     real, Dimension(nx,ny,nz):: density_grid_test
 
     integer:: checkpoint,steps,k,i,ierr
@@ -1334,7 +1334,7 @@ program nbody_sim
 
     print*, 'Got past particle to grid'
     ! call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
-    call particle_to_grid_cuda<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
+    call particle_to_grid_cuda<<<(N-1)/256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
     call cudaDeviceSynchronize()
     !call check_energy(density,nx,ny,nz,particles,N,smbh_m,E_0)
     !print*, 'Got past check energy - lol no'
@@ -1342,7 +1342,7 @@ program nbody_sim
     do i=1, 10000
         ! These 2 will go inside a do loop until end condition
         ! call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
-        call particle_to_grid_cuda<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
+        call particle_to_grid_cuda<<<(N-1)/256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
         call cudaDeviceSynchronize()
         ! add an if for however many steps 
         ! again, like fft stays on gpu but composes with a fft call
@@ -1366,7 +1366,7 @@ program nbody_sim
         ! integration step pushes all positions
         ! ill need to revisit thread count block size just going quick
         ! to get structure
-        call integration_step<<<256,256>>>(particles_d,N,dt)
+        call integration_step<<<(N-1)/256,256>>>(particles_d,N,dt)
         call cudaDeviceSynchronize()
         !print*, "Done step: ", i
 
