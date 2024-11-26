@@ -460,7 +460,6 @@ end subroutine particle_to_grid_cuda
     iy_shifted = iy+ny/4
     iz_shifted = iz+nz/4
 
-    print*,"got here"
     ! Interpolate acceleration from the grid to the particle position
     acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted, iz_shifted)/m * wx0 * wy0 * wz0
     acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted, iz_shifted)/m * wx1 * wy0 * wz0
