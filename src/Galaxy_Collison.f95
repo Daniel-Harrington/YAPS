@@ -378,7 +378,7 @@ end subroutine particle_to_grid_cuda
     real(kind(0.0)) :: x,y,z,m
     real(kind(0.0)) :: x_rel,y_rel,z_rel
     real(kind(0.0)) :: wx0, wx1, wy0, wy1, wz0, wz1
-    real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, x_i, y_j, z_k
+    real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, delta_z, x_i, y_j, z_k
     real(kind(0.0)) :: acc_x , acc_y, acc_z
 
     ! Predefined 
