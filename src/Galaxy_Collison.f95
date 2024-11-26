@@ -1224,7 +1224,7 @@ program nbody_sim
     use cufft_interface
     use your_mom
     implicit none
-    integer, parameter::N = 5
+    integer, parameter::N = 257
     integer, parameter:: nx =4 , ny = 4, nz = 4
     real, Dimension(nx,ny,nz):: density_grid_test
     real, Dimension(3,nx,ny,nz):: gravity_grid_test
