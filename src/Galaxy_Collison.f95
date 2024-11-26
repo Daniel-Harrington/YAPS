@@ -389,6 +389,7 @@ end subroutine particle_to_grid_cuda
     z_min = -1.5
     z_max = 1.5
     delta = (x_max - x_min) / real(nx/2 - 1)
+    delta_z = (z_max - z_min) / real(nz/2 - 1)
 
     ! Compte global thread ID
     thread_id = (blockIdx%x - 1) * blockDim%x + threadIdx%x
@@ -411,11 +412,14 @@ end subroutine particle_to_grid_cuda
 
     ! Ignore particles outside the range [-1.5, 1.5]
     if (x < x_min .or. x > x_max .or. y < y_min .or. y > y_max .or. z < z_min .or. z > z_max) return
+    acc_x = 0.0
+    acc_y = 0.0
+    acc_z = 0.0
 
     ! Determine grid cell indecies 
     ix = int(floor((x - x_min) / delta)) + 1
     iy = int(floor((x - y_min) / delta)) + 1
-    iz = int(floor((z - z_min) / delta)) + 1
+    iz = int(floor((z - z_min) / delta_z)) + 1
 
     ! Clamp indices within bounds
     if (ix < 1) ix = 1
@@ -427,12 +431,12 @@ end subroutine particle_to_grid_cuda
 
     x_i = x_min + (ix - 1) * delta
     y_j = y_min + (iy - 1) * delta
-    z_k = z_min + (iz - 1) * delta
+    z_k = z_min + (iz - 1) * delta_z
     
     ! Calculate relative distances
     x_rel = (x - x_i) / delta
     y_rel = (y - y_j) / delta
-    z_rel = (z - z_k) / delta
+    z_rel = (z - z_k) / delta_z
 
     ! Calculate weights 
     wx0 = 1.0 - x_rel
