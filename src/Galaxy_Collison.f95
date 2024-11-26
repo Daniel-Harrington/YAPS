@@ -1313,7 +1313,7 @@ program nbody_sim
     ! beyond this every major step stays in device memory
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     ! initial E_0
-    !print*, 'Got past initialization'
+    print*, 'Got past initialization'
 
 
 
@@ -1328,7 +1328,7 @@ program nbody_sim
 
     
 
-    !print*, 'Got past particle to grid'
+    print*, 'Got past particle to grid'
     ! call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
     call particle_to_grid_cuda<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
     call cudaDeviceSynchronize()
@@ -1352,13 +1352,13 @@ program nbody_sim
         ! host/cpu - style function is just composing cuda kernel functions
 
         call fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_grid_c_d, nx,ny,nz,N)
-        !print*, "got past fft_step"
+        print*, "got past fft_step"
         !! here zac call your grid to particles kernel
         !! heres and example you can change dimensions and stuff
-        call grid_to_particle_cuda<<<64,64>>>(gravity_grid_r_d,particles_d,N_d,nx, ny, nz,dx, dy, dz,smbh1_m,smbh2_m)
+        call grid_to_particle_cuda<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_r_d,particles_d,N_d,nx, ny, nz,dx, dy, dz,smbh1_m,smbh2_m)
         call cudaDeviceSynchronize()
 
-        !print*, "Got past grid to particle"
+        print*, "Got past grid to particle"
         ! integration step pushes all positions
         ! ill need to revisit thread count block size just going quick
         ! to get structure
