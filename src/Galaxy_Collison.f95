@@ -816,94 +816,72 @@ end module your_mom
 
 
 subroutine initialize_particles2(particle_arr,N,Ra)
-    !
-    !   Iniatiates the particle positions to form a single galaxy after 2 have been merged 
-    !   The larger SMBH in the center and a smaller one now orbating near 
-    ! 
+    use precision
     implicit none
-    real :: r, theta, pitch_angle, arm_separation, random_offset, rotation_velocity
-    Integer, intent(in) :: N, Ra
-    Real,Dimension(9,N),intent(out) ::  particle_arr
-    real, parameter :: pi = atan(1.0)*4 
-    real, parameter :: angle = pi/4 ! Anlge of galaxy 2 relative to galaxy 1
-    real, parameter :: offset = 5
-    Real::x,y,z,v_x,v_y,v_z,a_x,a_y,a_z
-    Integer::i, particles_in_galaxy
-    real :: spiral_factor, cos_angle, sin_angle
-       
-    ! data keyword cleanly sets all these to 0.0 as we need for 
-    ! ever initial velocity and acceleration in the cloud
-    data v_x,v_y,v_z,a_x,a_y,a_z /6*0.0/
- 
-    pitch_angle = 15.0 * pi / 180.0      ! Pitch angle in radians
-    spiral_factor = 1.0 / tan(pitch_angle)  ! Controls spiral tightness
-    arm_separation = pi / 2               ! Separation between arms (4 arms)
 
-    particles_in_galaxy = (N-2)/2 ! equal size galaxies for now 
+    ! Inputs
+    integer, intent(in) :: N, Ra
+    real, dimension(9, N), intent(out) :: particle_arr
 
-    cos_angle = cos(angle)
-    sin_angle = sin(angle)
+    ! Constants
+    real, parameter :: pi = atan(1.0) * 4
+    real, parameter :: pitch_angle = 15.0 * pi / 180.0
+    real, parameter :: arm_separation = pi / 2
+    real, parameter :: spiral_factor = 1.0 / tan(pitch_angle)
 
-    ! Initialize first SMBH
-    particle_arr(1:3, 1) = (/ 0.0, 0.0, 0.0 /)  ! Position
-    particle_arr(4:6, 1) = (/ 0.0, 0.0, 0.0 /)  ! Velocity
-    particle_arr(7:9, 1) = (/ 0.0, 0.0, 0.0 /)  ! Acceleration
+    ! Variables
+    integer :: i, particles_in_galaxy
+    real, allocatable :: random_numbers(:)
+    real :: x, y, z, v_x, v_y, v_z
+    real :: r, theta, random_offset, rotation_velocity
 
-    ! Initialize second SMBH
-    call random_number(r)
-    r = Ra/4 + r * (Ra - Ra/4)
-    call random_number(random_offset)
-    random_offset = (random_offset - 0.5) * Ra / 10
-    ! compute_gravitiesulate theta for a logarithmic spiral
-    theta = spiral_factor * log(r) + mod(i, 4) * arm_separation + random_offset / r
-    
-    particle_arr(1:3, 2) = (/ (r + random_offset) * cos(theta), (r + random_offset) * sin(theta), (2.0 * random_offset - 1.0) * 0.01 * Ra /)  ! Position
-    rotation_velocity = sqrt(1000/(1*r + abs(random_offset)))
-    particle_arr(4:6, 2) = (/ rotation_velocity * sin(theta), -rotation_velocity * cos(theta), 0.0 /)  ! Velocity
-    particle_arr(7:9, 2) = (/ 0.0, 0.0, 0.0 /)  ! Acceleration
+    ! Initialize random numbers
+    allocate(random_numbers(N * 3))
+    call random_number(random_numbers)
 
-    ! Particles in first galaxy
+    ! Number of particles for the galaxy
+    particles_in_galaxy = N - 2  ! Excluding SMBHs
+
+    ! Initialize SMBH at the center
+    particle_arr(:, 1) = (/ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 /)
+
+    ! Initialize the second SMBH at a random distance
+    r = Ra / 4 + random_numbers(1) * (Ra - Ra / 4)
+    theta = 2.0 * pi * random_numbers(2)
+    random_offset = (random_numbers(3) - 0.5) * Ra / 10
+
+    particle_arr(1:3, 2) = (/ (r + random_offset) * cos(theta), &
+                            (r + random_offset) * sin(theta), &
+                            (2.0 * random_offset - 1.0) * 0.01 * Ra /)
+    particle_arr(4:6, 2) = (/ 0.0, 0.0, 0.0 /)
+    particle_arr(7:9, 2) = (/ 0.0, 0.0, 0.0 /)
+
+    ! Initialize particles for the galaxy
     do i = 3, N
-        ! Set radial distance r within the range [Ra/4, Ra] with random variation
-        call random_number(r)
-        r = Ra/4 + r * (Ra - Ra/4)
+        ! Radial distance
+        r = Ra / 4 + random_numbers(i * 3 - 2) * (Ra - Ra / 4)
+        random_offset = (random_numbers(i * 3 - 1) - 0.5) * Ra / 10
 
-        ! Generate random offset for more natural spread around the arms
-        call random_number(random_offset)
-        random_offset = (random_offset - 0.5) * Ra / 10
-
-        ! compute_gravitiesulate theta for a logarithmic spiral
+        ! Logarithmic spiral angle
         theta = spiral_factor * log(r) + mod(i, 4) * arm_separation + random_offset / r
 
-        ! Set x, y, z for a spiral galaxy
+        ! Particle position
         x = (r + random_offset) * cos(theta)
         y = (r + random_offset) * sin(theta)
-        z = (2.0 * random_offset - 1.0) * 0.01 * Ra  ! slight z offset for thickness
+        z = (2.0 * random_offset - 1.0) * 0.01 * Ra  ! Slight thickness for galaxy
 
-        ! Assign rotation velocities, decreasing with distance from center
-        rotation_velocity = sqrt(1000/(1*r + abs(random_offset)))  ! Example galaxy-like rotation curve
+        ! Rotational velocity (decreasing with distance)
+        rotation_velocity = sqrt(1000 / (1.0 * r + abs(random_offset)))
         v_x = rotation_velocity * sin(theta)
         v_y = -rotation_velocity * cos(theta)
         v_z = 0.0
 
-        particle_arr(:,i) = (/x,y,z,v_x,v_y,v_z,a_x,a_y,a_z/)
+        ! Assign particle properties
+        particle_arr(:, i) = (/ x, y, z, v_x, v_y, v_z, 0.0, 0.0, 0.0 /)
+    end do
 
-    end do 
-
-    ! Open a file with a unique unit number
-    
-    ! open(unit=10, file='particledata.csv', status="replace", action="write")
-
-    ! ! Write header
-    ! write(10, '(A)') "x,y,z,v_x,v_y,v_z,a_x,a_y,a_z"
-
-    ! ! Write data
-    ! do i = 1, N
-    !     write(10, '(9(F12.6, ","))') particle_arr(:, i)
-    ! end do
-
-    ! ! Close the file
-    ! close(10)
+    ! Clean up
+    deallocate(random_numbers)
 end subroutine initialize_particles2
 
 
