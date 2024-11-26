@@ -280,8 +280,8 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
     implicit none
     integer, value :: N, nx, ny, nz, nx2, ny2, nz2
     real(kind(0.0)), value :: dx, dy, dz,smbh1_m, smbh2_m
-    real(kind(0.0)),dimension(:,:),device:: particles_d
-    real,dimension(:,:,:),device,intent(inout)::density_grid_r_d
+    real(kind(0.0)),dimension(:,:):: particles_d
+    real,dimension(:,:,:)::density_grid_r_d
 
     ! Thread and block indices
     integer :: idx, ix, iy, iz, thread_id,istat
@@ -1224,7 +1224,7 @@ program nbody_sim
     use cufft_interface
     use your_mom
     implicit none
-    integer, parameter::N = 10
+    integer, parameter::N = 513
     integer, parameter:: nx =4 , ny = 4, nz = 4
     real, Dimension(nx,ny,nz):: density_grid_test
 
