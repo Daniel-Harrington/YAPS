@@ -373,20 +373,17 @@ end subroutine particle_to_grid_cuda
     implicit none
 
     integer, value :: N,nx,ny,nz
-    real(kind(0.0)), value :: dx,dy,dz
-    real(kind(0.0)), dimension(:,:),device :: particles
+    real(kind(0.0)), value :: dx,dy,dz,smbh1_m,smbh2_m
+    real(kind(0.0)), dimension(:,:),device:: particles
     real,dimension(:,:,:,:),device:: acceleration_grid
 
     !thread and block indecies 
     integer :: i,ix,iy,iz,ix_shifted,iy_shifted,iz_shifted,thread_id
-    real, value :: smbh1_m,smbh2_m
     real(kind(0.0)) :: x,y,z,m
     real(kind(0.0)) :: x_rel,y_rel,z_rel
     real(kind(0.0)) :: wx0, wx1, wy0, wy1, wz0, wz1
     real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, delta_z, x_i, y_j, z_k
     real(kind(0.0)) :: acc_x , acc_y, acc_z
-
-    print*,"got here"
 
     ! Predefined 
     x_min = -1.5
@@ -398,6 +395,7 @@ end subroutine particle_to_grid_cuda
     delta = (x_max - x_min) / real(nx/2 - 1)
     delta_z = (z_max - z_min) / real(nz/2 - 1)
 
+    print*, delta
 
     ! Compte global thread ID
     thread_id = (blockIdx%x - 1) * blockDim%x + threadIdx%x
@@ -644,10 +642,6 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
     !print*,"beginning fft"
    
 
-    
-    ! 3D R2C Fourier Transform plan setup
-    call cufftPlan3d(plan,nx,ny,nz,CUFFT_R2C)
-    !print*,"FINISHED     planning"
 
     ! 3D R2C Fourier Transform execution
     call cufftExecR2C(plan,density_grid_r_d,density_grid_c_d)
@@ -680,13 +674,11 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
     call cudaDeviceSynchronize()
 
     !print*, "Calculated potential"
-    call calculate_KE<<<256,256>>>(particles_d,N,m,smbh1_m,smbh2_m,KE)
+    call calculate_KE<<<(N-1)/256,256>>>(particles_d,N,m,smbh1_m,smbh2_m,KE)
     call cudaDeviceSynchronize()
 
     !print*, "Calculated KE"
 
-    !Destroy Plan
-    call cufftDestroy(plan)
 
     U = (2*pi*G/V)*U
 
@@ -1373,7 +1365,12 @@ program nbody_sim
         print*, gravity_grid_test
         !! here zac call your grid to particles kernel
         !! heres and example you can change dimensions and stuff
-        call grid_to_particle_cuda<<<(N-1)/256,256>>>(gravity_grid_r_d,particles_d,N_d,nx, ny, nz,dx, dy, dz,smbh1_m,smbh2_m)
+        
+        print*, dx,dy,dz
+        
+        call grid_to_particle_cuda<<<(N-1)/256,256>>>(gravity_grid_r_d,particles_d,N,nx, ny, nz,dx, dy, dz,smbh1_m,smbh2_m)
+        ! Check for errors
+
         call cudaDeviceSynchronize()
         
         print*, "Got past grid to particle"
@@ -1384,8 +1381,8 @@ program nbody_sim
         call cudaDeviceSynchronize()
 
         particles = particles_d
-        print*, "Particles"
-        do i = 1, N
+        print*, "Particles (only 10)"
+        do i = 1, 10
            print*, particles(:,i) 
         end do
         !print*, "Done step: ", i
