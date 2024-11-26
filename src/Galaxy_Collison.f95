@@ -386,6 +386,8 @@ end subroutine particle_to_grid_cuda
     real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, delta_z, x_i, y_j, z_k
     real(kind(0.0)) :: acc_x , acc_y, acc_z
 
+    print*,"got here"
+
     ! Predefined 
     x_min = -1.5
     x_max = 1.5
@@ -395,6 +397,7 @@ end subroutine particle_to_grid_cuda
     z_max = 1.5
     delta = (x_max - x_min) / real(nx/2 - 1)
     delta_z = (z_max - z_min) / real(nz/2 - 1)
+
 
     ! Compte global thread ID
     thread_id = (blockIdx%x - 1) * blockDim%x + threadIdx%x
@@ -459,6 +462,7 @@ end subroutine particle_to_grid_cuda
     iy_shifted = iy+ny/4
     iz_shifted = iz+nz/4
 
+    print*,"got here"
     ! Interpolate acceleration from the grid to the particle position
     acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted, iz_shifted)/m * wx0 * wy0 * wz0
     acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted, iz_shifted)/m * wx1 * wy0 * wz0
@@ -769,9 +773,6 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
    
     
 
-    ! 3D R2C Fourier Transform plan setup
-    call cufftPlan3d(plan, nx,ny,nz,CUFFT_R2C)
-    
 
     ! 3D R2C Fourier Transform execution
     call cufftExecR2C(plan,density_grid_r_d,density_grid_c_d)
@@ -802,10 +803,9 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     
     
     call normalize3d<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_r_d,nx,ny,nz,factor)
-  
+    call cudaDeviceSynchronize()
+
     !print *, "normalized"
-    !Destroy Plan
-    call cufftDestroy(plan)
 
     
 end subroutine fft_step
@@ -1239,6 +1239,8 @@ program nbody_sim
     integer :: blockDimX, blockDimY, blockDimZ
     integer :: gridDimX, gridDimY, gridDimZ
 
+    integer:: plan
+
 
     ! ############################################
     ! DEVICE MEMORY SETUP
@@ -1330,7 +1332,10 @@ program nbody_sim
     gridDimZ = ceiling(real(nz) / blockDimZ)
         
 
-
+    
+    ! 3D R2C Fourier Transform plan setup
+    call cufftPlan3d(plan, nx,ny,nz,CUFFT_R2C)
+    
     
 
     print*, 'Got past particle to grid'
@@ -1400,5 +1405,8 @@ program nbody_sim
 
     ! deallocate particles
     deallocate(particles_d)
+        !Destroy Plan
+    call cufftDestroy(plan)
+
  
 end program nbody_sim
