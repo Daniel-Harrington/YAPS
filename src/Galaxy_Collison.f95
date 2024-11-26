@@ -275,20 +275,21 @@ attributes(global) subroutine calculate_KE(particles_d, N,m,smbh1_m,smbh2_m,KE)
     endif
 end subroutine calculate_KE
 ! A in works Subroutine that does particle to gid on GPU
-attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz, smbh1_m, smbh2_m)
+attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
     use cudafor
     implicit none
-    integer, value :: N, nx, ny, nz
-    real(kind(0.0)), value :: dx, dy, dz, smbh1_m, smbh2_m
-    real(kind(0.0)), dimension(:,:), device :: particles_d
-    real, dimension(:,:,:), device, intent(inout) :: density_grid_r_d
+    integer, value :: N, nx, ny, nz, nx2, ny2, nz2
+    real(kind(0.0)), value :: dx, dy, dz,smbh1_m, smbh2_m
+    real(kind(0.0)),dimension(:,:):: particles_d
+    real,dimension(:,:,:)::density_grid_r_d
 
     ! Thread and block indices
-    integer :: idx, ix, iy, iz, thread_id
+    integer :: idx, ix, iy, iz, thread_id,istat
     real(kind(0.0)) :: x, y, z, m
     real(kind(0.0)) :: x_rel, y_rel, z_rel
     real(kind(0.0)) :: wx0, wx1, wy0, wy1, wz0, wz1
     real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, delta_z, x_i, y_j, z_k
+    
 
     ! predefined
     x_min = -1.5
@@ -298,56 +299,74 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
     z_min = -1.5
     z_max = 1.5
     delta = (x_max - x_min) / ((nx/2)-1)
-    delta_z = (z_max - z_min) / real(nz/2 - 1)
+    delta_z = (z_max - z_min) / ((nz/2)-1)
 
-    ! compute global thread ID
-    thread_id = (blockIdx%x - 1) * blockDim%x + threadIdx%x
+    nx2 = nx/4 !offsets for zero padding
+    ny2 = ny/4
+    nz2 = nz/4
+
+    density_grid_r_d = 0.0
+
+    !compute global thread ID
+    thread_id = (blockIdx%x -1) * blockDim%x + threadIdx%x
     if (thread_id >= N) return
 
-    ! read particle positions
-    x = particles_d(1, thread_id)
-    y = particles_d(2, thread_id)
-    z = particles_d(3, thread_id)
+    !read particle positions 
+    x = particles_d(1,thread_id)
+    y = particles_d(2,thread_id)
+    z = particles_d(3,thread_id)
 
     ! Assign mass based on particle ID
-    if (thread_id == 1) then
-        m = smbh1_m
-    else if (thread_id == 2) then
-        m = smbh2_m
+    if (thread_id==1) then
+        m = smbh1_m 
+    end if 
+    if (thread_id==2) then
+        m = smbh2_m 
     else
-        m = 1.0 / N
-    end if
+        m = 1.0 /N 
+    end if 
 
-    ! determine grid cell indices
-    ix = int(floor((x - x_min) / delta)) + 1
-    iy = int(floor((y - y_min) / delta)) + 1
-    iz = int(floor((z - z_min) / delta_z)) + 1
+    
+    ! determine grid cell indicies 
+    ix = int(floor((x-x_min)/delta)) + 1
+    iy = int(floor((y-y_min)/delta)) + 1
+    iz = int(floor((z-z_min)/delta_z)) + 1
+
+    !clamp indecies within bounds 
+    if (ix < 1) ix = 1
+    if (ix >= nx/2) ix = nx/2 -1
+    if (iy < 1) iy = 1
+    if (iy >= ny) iy = ny/2 -1
+    if (iz < 1) iz = 1
+    if (iz >= nz) iz = nz/2 -1
 
     x_i = x_min + (ix - 1) * delta
     y_j = y_min + (iy - 1) * delta
     z_k = z_min + (iz - 1) * delta_z
 
-    x_rel = (x - x_i) / delta
-    y_rel = (y - y_j) / delta
-    z_rel = (z - z_k) / delta_z
+    x_rel = (x-x_i)/delta
+    y_rel = (y-y_j)/delta
+    z_rel = (z-z_k)/delta_z
 
-    ! Calculate weights
-    wx0 = 1.0 - x_rel
-    wx1 = x_rel
-    wy0 = 1.0 - y_rel
-    wy1 = y_rel
-    wz0 = 1.0 - z_rel
+    ! Claculate weights
+    wx0 = 1.0 - x_rel 
+    wx1 = x_rel 
+    wy0 = 1.0 - y_rel 
+    wy1 = y_rel 
+    wz0 = 1.0 - z_rel 
     wz1 = z_rel
 
-    ! Update density field (directly, no atomic operations)
-    density_grid_r_d(ix, iy, iz) = density_grid_r_d(ix, iy, iz) + m * wx0 * wy0 * wz0
-    density_grid_r_d(ix+1, iy, iz) = density_grid_r_d(ix+1, iy, iz) + m * wx1 * wy0 * wz0
-    density_grid_r_d(ix, iy+1, iz) = density_grid_r_d(ix, iy+1, iz) + m * wx0 * wy1 * wz0
-    density_grid_r_d(ix+1, iy+1, iz) = density_grid_r_d(ix+1, iy+1, iz) + m * wx1 * wy1 * wz0
-    density_grid_r_d(ix, iy, iz+1) = density_grid_r_d(ix, iy, iz+1) + m * wx0 * wy0 * wz1
-    density_grid_r_d(ix+1, iy, iz+1) = density_grid_r_d(ix+1, iy, iz+1) + m * wx1 * wy0 * wz1
-    density_grid_r_d(ix, iy+1, iz+1) = density_grid_r_d(ix, iy+1, iz+1) + m * wx0 * wy1 * wz1
-    density_grid_r_d(ix+1, iy+1, iz+1) = density_grid_r_d(ix+1, iy+1, iz+1) + m * wx1 * wy1 * wz1
+    ! Update density feiled (atomic operations to prevent race condition)
+
+    istat = atomicadd(density_grid_r_d(ix+nx2, iy+ny2, iz+nz2), m * wx0 * wy0 * wz0)
+    istat = atomicadd(density_grid_r_d(ix+nx2+1, iy+ny2, iz+nz2), m * wx1 * wy0 * wz0)
+    istat = atomicadd(density_grid_r_d(ix+nx2, iy+ny2+1, iz+nz2), m * wx0 * wy1 * wz0)
+    istat = atomicadd(density_grid_r_d(ix+nx2+1, iy+ny2+1, iz+nx2), m * wx1 * wy1 * wz0)
+    istat = atomicadd(density_grid_r_d(ix+nx2, iy+ny2, iz+nz2+1), m * wx0 * wy0 * wz1)
+    istat = atomicadd(density_grid_r_d(ix+nx2+1, iy+ny2, iz+nz2+1), m * wx1 * wy0 * wz1)
+    istat = atomicadd(density_grid_r_d(ix+nx2, iy+ny2+1, iz+nz2+1), m * wx0 * wy1 * wz1)
+    istat = atomicadd(density_grid_r_d(ix+nx2+1, iy+ny2+1, iz+nz2+1), m * wx1 * wy1 * wz1)
+
 end subroutine particle_to_grid_cuda
 
     attributes(global) subroutine grid_to_particle_cuda(acceleration_grid, particles, N, nx, ny, nz, dx, dy, dz,smbh1_m, smbh2_m)
@@ -797,73 +816,206 @@ end module your_mom
 
 
 subroutine initialize_particles2(particle_arr,N,Ra)
-    use precision
+    !
+    !   Iniatiates the particle positions to form a single galaxy after 2 have been merged 
+    !   The larger SMBH in the center and a smaller one now orbating near 
+    ! 
     implicit none
+    real :: r, theta, pitch_angle, arm_separation, random_offset, rotation_velocity
+    Integer, intent(in) :: N, Ra
+    Real,Dimension(9,N),intent(out) ::  particle_arr
+    real, parameter :: pi = atan(1.0)*4 
+    real, parameter :: angle = pi/4 ! Anlge of galaxy 2 relative to galaxy 1
+    real, parameter :: offset = 5
+    Real::x,y,z,v_x,v_y,v_z,a_x,a_y,a_z
+    Integer::i, particles_in_galaxy
+    real :: spiral_factor, cos_angle, sin_angle
+       
+    ! data keyword cleanly sets all these to 0.0 as we need for 
+    ! ever initial velocity and acceleration in the cloud
+    data v_x,v_y,v_z,a_x,a_y,a_z /6*0.0/
+ 
+    pitch_angle = 15.0 * pi / 180.0      ! Pitch angle in radians
+    spiral_factor = 1.0 / tan(pitch_angle)  ! Controls spiral tightness
+    arm_separation = pi / 2               ! Separation between arms (4 arms)
 
-    ! Inputs
-    integer, intent(in) :: N, Ra
-    real, dimension(9, N), intent(out) :: particle_arr
+    particles_in_galaxy = (N-2)/2 ! equal size galaxies for now 
 
-    ! Constants
-    real, parameter :: pi = atan(1.0) * 4
-    real, parameter :: pitch_angle = 15.0 * pi / 180.0
-    real, parameter :: arm_separation = pi / 2
-    real, parameter :: spiral_factor = 1.0 / tan(pitch_angle)
+    cos_angle = cos(angle)
+    sin_angle = sin(angle)
 
-    ! Variables
-    integer :: i, particles_in_galaxy
-    real, allocatable :: random_numbers(:)
-    real :: x, y, z, v_x, v_y, v_z
-    real :: r, theta, random_offset, rotation_velocity
+    ! Initialize first SMBH
+    particle_arr(1:3, 1) = (/ 0.0, 0.0, 0.0 /)  ! Position
+    particle_arr(4:6, 1) = (/ 0.0, 0.0, 0.0 /)  ! Velocity
+    particle_arr(7:9, 1) = (/ 0.0, 0.0, 0.0 /)  ! Acceleration
 
-    ! Initialize random numbers
-    allocate(random_numbers(N * 3))
-    call random_number(random_numbers)
+    ! Initialize second SMBH
+    call random_number(r)
+    r = Ra/4 + r * (Ra - Ra/4)
+    call random_number(random_offset)
+    random_offset = (random_offset - 0.5) * Ra / 10
+    ! compute_gravitiesulate theta for a logarithmic spiral
+    theta = spiral_factor * log(r) + mod(i, 4) * arm_separation + random_offset / r
+    
+    particle_arr(1:3, 2) = (/ (r + random_offset) * cos(theta), (r + random_offset) * sin(theta), (2.0 * random_offset - 1.0) * 0.01 * Ra /)  ! Position
+    rotation_velocity = sqrt(1000/(1*r + abs(random_offset)))
+    particle_arr(4:6, 2) = (/ rotation_velocity * sin(theta), -rotation_velocity * cos(theta), 0.0 /)  ! Velocity
+    particle_arr(7:9, 2) = (/ 0.0, 0.0, 0.0 /)  ! Acceleration
 
-    ! Number of particles for the galaxy
-    particles_in_galaxy = N - 2  ! Excluding SMBHs
-
-    ! Initialize SMBH at the center
-    particle_arr(:, 1) = (/ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 /)
-
-    ! Initialize the second SMBH at a random distance
-    r = Ra / 4 + random_numbers(1) * (Ra - Ra / 4)
-    theta = 2.0 * pi * random_numbers(2)
-    random_offset = (random_numbers(3) - 0.5) * Ra / 10
-
-    particle_arr(1:3, 2) = (/ (r + random_offset) * cos(theta), &
-                            (r + random_offset) * sin(theta), &
-                            (2.0 * random_offset - 1.0) * 0.01 * Ra /)
-    particle_arr(4:6, 2) = (/ 0.0, 0.0, 0.0 /)
-    particle_arr(7:9, 2) = (/ 0.0, 0.0, 0.0 /)
-
-    ! Initialize particles for the galaxy
+    ! Particles in first galaxy
     do i = 3, N
-        ! Radial distance
-        r = Ra / 4 + random_numbers(i * 3 - 2) * (Ra - Ra / 4)
-        random_offset = (random_numbers(i * 3 - 1) - 0.5) * Ra / 10
+        ! Set radial distance r within the range [Ra/4, Ra] with random variation
+        call random_number(r)
+        r = Ra/4 + r * (Ra - Ra/4)
 
-        ! Logarithmic spiral angle
+        ! Generate random offset for more natural spread around the arms
+        call random_number(random_offset)
+        random_offset = (random_offset - 0.5) * Ra / 10
+
+        ! compute_gravitiesulate theta for a logarithmic spiral
         theta = spiral_factor * log(r) + mod(i, 4) * arm_separation + random_offset / r
 
-        ! Particle position
+        ! Set x, y, z for a spiral galaxy
         x = (r + random_offset) * cos(theta)
         y = (r + random_offset) * sin(theta)
-        z = (2.0 * random_offset - 1.0) * 0.01 * Ra  ! Slight thickness for galaxy
+        z = (2.0 * random_offset - 1.0) * 0.01 * Ra  ! slight z offset for thickness
 
-        ! Rotational velocity (decreasing with distance)
-        rotation_velocity = sqrt(1000 / (1.0 * r + abs(random_offset)))
+        ! Assign rotation velocities, decreasing with distance from center
+        rotation_velocity = sqrt(1000/(1*r + abs(random_offset)))  ! Example galaxy-like rotation curve
         v_x = rotation_velocity * sin(theta)
         v_y = -rotation_velocity * cos(theta)
         v_z = 0.0
 
-        ! Assign particle properties
-        particle_arr(:, i) = (/ x, y, z, v_x, v_y, v_z, 0.0, 0.0, 0.0 /)
+        particle_arr(:,i) = (/x,y,z,v_x,v_y,v_z,a_x,a_y,a_z/)
+
+    end do 
+
+    ! Open a file with a unique unit number
+    
+    ! open(unit=10, file='particledata.csv', status="replace", action="write")
+
+    ! ! Write header
+    ! write(10, '(A)') "x,y,z,v_x,v_y,v_z,a_x,a_y,a_z"
+
+    ! ! Write data
+    ! do i = 1, N
+    !     write(10, '(9(F12.6, ","))') particle_arr(:, i)
+    ! end do
+
+    ! ! Close the file
+    ! close(10)
+end subroutine initialize_particles2
+
+
+subroutine initialize_particles(particle_arr,N,Ra)
+    !
+    !   Iniatiates the particle positions to form 2 spiral galaxies
+    !   of uniform density and with inital velocities suitable for stable orbit 
+    ! 
+    implicit none
+    real :: r, theta, pitch_angle, arm_separation, random_offset, rotation_velocity
+    Integer, intent(in) :: N, Ra
+    Real,Dimension(9,N),intent(out) ::  particle_arr
+    real, parameter :: pi = atan(1.0)*4 
+    real, parameter :: angle = pi/4 ! Anlge of galaxy 2 relative to galaxy 1
+    real, parameter :: offset = 5
+    Real::x,y,z,v_x,v_y,v_z,a_x,a_y,a_z
+    real :: x_rot, y_rot
+    Integer::i, particles_in_galaxy
+    real :: spiral_factor, cos_angle, sin_angle
+       
+    ! data keyword cleanly sets all these to 0.0 as we need for 
+    ! ever initial velocity and acceleration in the cloud
+    data v_x,v_y,v_z,a_x,a_y,a_z /6*0.0/
+ 
+    pitch_angle = 15.0 * pi / 180.0      ! Pitch angle in radians
+    spiral_factor = 1.0 / tan(pitch_angle)  ! Controls spiral tightness
+    arm_separation = pi / 2               ! Separation between arms (4 arms)
+
+    particles_in_galaxy = (N-2)/2 ! equal size galaxies for now 
+
+    cos_angle = cos(angle)
+    sin_angle = sin(angle)
+
+    ! Initialize first SMBH
+    particle_arr(1:3, 1) = (/ 0.0, 0.0, 0.0 /)  ! Position
+    particle_arr(4:6, 1) = (/ 0.0, 0.0, 0.0 /)  ! Velocity
+    particle_arr(7:9, 1) = (/ 0.0, 0.0, 0.0 /)  ! Acceleration
+
+    ! Initialize second SMBH
+    particle_arr(1:3, 2) = (/ offset * cos_angle, offset * sin_angle, 0.0 /)  ! Position
+    particle_arr(4:6, 2) = (/ 0.0, 0.0, 0.0 /)  ! Velocity
+    particle_arr(7:9, 2) = (/ 0.0, 0.0, 0.0 /)  ! Acceleration
+
+    ! Particles in first galaxy
+    do i = 3, particles_in_galaxy + 2
+        ! Set radial distance r within the range [Ra/4, Ra] with random variation
+        call random_number(r)
+        r = Ra/4 + r * (Ra - Ra/4)
+
+        ! Generate random offset for more natural spread around the arms
+        call random_number(random_offset)
+        random_offset = (random_offset - 0.5) * Ra / 10
+
+        ! compute_gravitiesulate theta for a logarithmic spiral
+        theta = spiral_factor * log(r) + mod(i, 4) * arm_separation + random_offset / r
+
+        ! Set x, y, z for a spiral galaxy
+        x = (r + random_offset) * cos(theta)
+        y = (r + random_offset) * sin(theta)
+        z = (2.0 * random_offset - 1.0) * 0.01 * Ra  ! slight z offset for thickness
+
+        ! Assign rotation velocities, decreasing with distance from center
+        rotation_velocity = sqrt(1000/(1*r + abs(random_offset)))  ! Example galaxy-like rotation curve
+        v_x = rotation_velocity * sin(theta)
+        v_y = -rotation_velocity * cos(theta)
+        v_z = 0.0
+
+        particle_arr(:,i) = (/x,y,z,v_x,v_y,v_z,a_x,a_y,a_z/)
+
+    end do 
+
+    ! Generate particles for the second galaxy
+    do i = particles_in_galaxy + 3, N
+        call random_number(r)
+        r = Ra/2 + r * (Ra - Ra/2)
+
+        call random_number(random_offset)
+        random_offset = (random_offset - 0.5) * Ra / 10
+
+        theta = spiral_factor * log(r) + mod(i, 4) * arm_separation + random_offset / r
+
+        x = (r + random_offset) * cos(theta)
+        y = (r + random_offset) * sin(theta)
+        z = (2.0 * random_offset - 1.0) * 0.01 * Ra  
+
+        ! Apply rotation to second galaxy
+        x_rot = cos_angle * x - sin_angle * y + offset * cos_angle
+        y_rot = sin_angle * x + cos_angle * y + offset * sin_angle
+
+        rotation_velocity = sqrt(1000/(1*r + abs(random_offset)))
+        v_x = rotation_velocity * sin(theta)
+        v_y = -rotation_velocity * cos(theta)
+        v_z = 0.0
+
+        particle_arr(:, i) = (/ x_rot, y_rot, z, v_x, v_y, v_z, 0.0, 0.0, 0.0 /)
     end do
 
-    ! Clean up
-    deallocate(random_numbers)
-end subroutine initialize_particles2
+    ! Open a file with a unique unit number
+    
+    open(unit=10, file='particledata.csv', status="replace", action="write")
+
+    ! Write header
+    write(10, '(A)') "x,y,z,v_x,v_y,v_z,a_x,a_y,a_z"
+
+    ! Write data
+    do i = 1, N
+        write(10, '(9(F12.6, ","))') particle_arr(:, i)
+    end do
+
+    ! Close the file
+    close(10)
+end subroutine initialize_particles
 
 subroutine particle_to_grid(density, particles, N, nx, ny, nz, dx, dy, dz)
     !
