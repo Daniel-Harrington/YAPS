@@ -278,7 +278,7 @@ end subroutine calculate_KE
 attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
     use cudafor
     implicit none
-    integer, value :: N, nx, ny, nz
+    integer, value :: N, nx, ny, nz, nx2, ny2, nz2
     real(kind(0.0)), value :: dx, dy, dz,smbh1_m, smbh2_m
     real(kind(0.0)),dimension(:,:),device:: particles_d
     real,dimension(:,:,:),device,intent(inout)::density_grid_r_d
@@ -288,7 +288,7 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
     real(kind(0.0)) :: x, y, z, m
     real(kind(0.0)) :: x_rel, y_rel, z_rel
     real(kind(0.0)) :: wx0, wx1, wy0, wy1, wz0, wz1
-    real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, x_i, y_j, z_k
+    real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, delta_z, x_i, y_j, z_k
     
 
     ! predefined
@@ -299,6 +299,13 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
     z_min = -1.5
     z_max = 1.5
     delta = (x_max - x_min) / ((nx/2)-1)
+    delta_z = (z_max - z_min) / ((nz/2)-1)
+
+    nx2 = nx/4 !offsets for zero padding
+    ny2 = ny/4
+    nz2 = nz/4
+
+    density_grid_r_d = 0.0
 
     !compute global thread ID
     thread_id = (blockIdx%x -1) * blockDim%x + threadIdx%x
@@ -319,13 +326,11 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
         m = 1.0 /N 
     end if 
 
-    ! Ignore particles outside the range [-1.5,1.5]
-    if (x < x_min .or. x > x_max .or. y < y_min .or. y > y_max .or. z < z_min .or. z > z_max) return
     
     ! determine grid cell indicies 
     ix = int(floor((x-x_min)/delta)) + 1
     iy = int(floor((y-y_min)/delta)) + 1
-    iz = int(floor((z-z_min)/delta)) + 1
+    iz = int(floor((z-z_min)/delta_z)) + 1
 
     !clamp indecies within bounds 
     if (ix < 1) ix = 1
@@ -337,11 +342,11 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
 
     x_i = x_min + (ix - 1) * delta
     y_j = y_min + (iy - 1) * delta
-    z_k = z_min + (iz - 1) * delta
+    z_k = z_min + (iz - 1) * delta_z
 
     x_rel = (x-x_i)/delta
     y_rel = (y-y_j)/delta
-    z_rel = (z-z_k)/delta
+    z_rel = (z-z_k)/delta_z
 
     ! Claculate weights
     wx0 = 1.0 - x_rel 
@@ -353,14 +358,14 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
 
     ! Update density feiled (atomic operations to prevent race condition)
 
-    istat = atomicadd(density_grid_r_d(ix, iy, iz), m * wx0 * wy0 * wz0)
-    istat = atomicadd(density_grid_r_d(ix+1, iy, iz), m * wx1 * wy0 * wz0)
-    istat = atomicadd(density_grid_r_d(ix, iy+1, iz), m * wx0 * wy1 * wz0)
-    istat = atomicadd(density_grid_r_d(ix+1, iy+1, iz), m * wx1 * wy1 * wz0)
-    istat = atomicadd(density_grid_r_d(ix, iy, iz+1), m * wx0 * wy0 * wz1)
-    istat = atomicadd(density_grid_r_d(ix+1, iy, iz+1), m * wx1 * wy0 * wz1)
-    istat = atomicadd(density_grid_r_d(ix, iy+1, iz+1), m * wx0 * wy1 * wz1)
-    istat = atomicadd(density_grid_r_d(ix+1, iy+1, iz+1), m * wx1 * wy1 * wz1)
+    istat = atomicadd(density_grid_r_d(ix+nx2, iy+ny2, iz+nz2), m * wx0 * wy0 * wz0)
+    istat = atomicadd(density_grid_r_d(ix+nx2+1, iy+ny2, iz+nz2), m * wx1 * wy0 * wz0)
+    istat = atomicadd(density_grid_r_d(ix+nx2, iy+ny2+1, iz+nz2), m * wx0 * wy1 * wz0)
+    istat = atomicadd(density_grid_r_d(ix+nx2+1, iy+ny2+1, iz+nx2), m * wx1 * wy1 * wz0)
+    istat = atomicadd(density_grid_r_d(ix+nx2, iy+ny2, iz+nz2+1), m * wx0 * wy0 * wz1)
+    istat = atomicadd(density_grid_r_d(ix+nx2+1, iy+ny2, iz+nz2+1), m * wx1 * wy0 * wz1)
+    istat = atomicadd(density_grid_r_d(ix+nx2, iy+ny2+1, iz+nz2+1), m * wx0 * wy1 * wz1)
+    istat = atomicadd(density_grid_r_d(ix+nx2+1, iy+ny2+1, iz+nz2+1), m * wx1 * wy1 * wz1)
 
 end subroutine particle_to_grid_cuda
 
