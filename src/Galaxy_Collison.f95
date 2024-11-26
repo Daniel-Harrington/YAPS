@@ -1355,8 +1355,8 @@ program nbody_sim
         !print*, "got past fft_step"
         !! here zac call your grid to particles kernel
         !! heres and example you can change dimensions and stuff
-        !call grid_to_particle_cuda<<<64,64>>>(gravity_grid_r_d,particles_d,N_d,nx, ny, nz,dx, dy, dz,smbh1_m,smbh2_m)
-        !call cudaDeviceSynchronize()
+        call grid_to_particle_cuda<<<64,64>>>(gravity_grid_r_d,particles_d,N_d,nx, ny, nz,dx, dy, dz,smbh1_m,smbh2_m)
+        call cudaDeviceSynchronize()
 
         !print*, "Got past grid to particle"
         ! integration step pushes all positions
