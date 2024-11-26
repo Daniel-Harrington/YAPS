@@ -416,7 +416,6 @@ end subroutine particle_to_grid_cuda
     end if 
 
     ! Ignore particles outside the range [-1.5, 1.5]
-    if (x < x_min .or. x > x_max .or. y < y_min .or. y > y_max .or. z < z_min .or. z > z_max) return
     acc_x = 0.0
     acc_y = 0.0
     acc_z = 0.0
