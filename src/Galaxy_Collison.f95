@@ -1227,6 +1227,7 @@ program nbody_sim
     integer, parameter::N = 513
     integer, parameter:: nx =4 , ny = 4, nz = 4
     real, Dimension(nx,ny,nz):: density_grid_test
+    real, Dimension(3,nx,ny,nz):: gravity_grid_test
 
     integer:: checkpoint,steps,k,i,ierr
     real:: m,smbh1_m,smbh2_m,E_0,E,dx,dy,dz
@@ -1346,11 +1347,11 @@ program nbody_sim
         call cudaDeviceSynchronize()
 
         density_grid_test = density_grid_r_d
-
+        print*, "Density Cube:"
         print*, density_grid_test
         ! add an if for however many steps 
         ! again, like fft stays on gpu but composes with a fft call
-        call check_energy(density_grid_r_d, density_grid_c_d, nx, ny, nz, particles_d, N, m, smbh1_m, smbh2_m, E)
+        !call check_energy(density_grid_r_d, density_grid_c_d, nx, ny, nz, particles_d, N, m, smbh1_m, smbh2_m, E)
 
         !print*, 'Got past second energy check'
 
@@ -1360,18 +1361,28 @@ program nbody_sim
         ! host/cpu - style function is just composing cuda kernel functions
 
         call fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_grid_c_d, nx,ny,nz,N)
+        
         print*, "got past fft_step"
+        gravity_grid_test = gravity_grid_r_d
+        print*, "All HAIL Gravity Cube:"
+        print*, gravity_grid_test
         !! here zac call your grid to particles kernel
         !! heres and example you can change dimensions and stuff
         call grid_to_particle_cuda<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_r_d,particles_d,N_d,nx, ny, nz,dx, dy, dz,smbh1_m,smbh2_m)
         call cudaDeviceSynchronize()
-
+        
         print*, "Got past grid to particle"
         ! integration step pushes all positions
         ! ill need to revisit thread count block size just going quick
         ! to get structure
         call integration_step<<<(N-1)/256,256>>>(particles_d,N,dt)
         call cudaDeviceSynchronize()
+
+        particles = particles_d
+        print*, "Particles"
+        do i = 1, N
+           print*, particles(:,i) 
+        end do
         !print*, "Done step: ", i
 
         ! need a step to [pass back & write out
