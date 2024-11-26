@@ -460,32 +460,32 @@ end subroutine particle_to_grid_cuda
     iz_shifted = iz+nz/4
 
     ! Interpolate acceleration from the grid to the particle position
-    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted, iz_shifted) * wx0 * wy0 * wz0
-    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted, iz_shifted) * wx1 * wy0 * wz0
-    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted + 1, iz_shifted) * wx0 * wy1 * wz0
-    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted + 1, iz_shifted) * wx1 * wy1 * wz0
-    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted, iz_shifted + 1) * wx0 * wy0 * wz1
-    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted, iz_shifted + 1) * wx1 * wy0 * wz1
-    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted + 1, iz_shifted + 1) * wx0 * wy1 * wz1
-    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted + 1, iz_shifted + 1) * wx1 * wy1 * wz1
+    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted, iz_shifted)/m * wx0 * wy0 * wz0
+    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted, iz_shifted)/m * wx1 * wy0 * wz0
+    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted + 1, iz_shifted)/m * wx0 * wy1 * wz0
+    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted + 1, iz_shifted)/m * wx1 * wy1 * wz0
+    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted, iz_shifted + 1)/m * wx0 * wy0 * wz1
+    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted, iz_shifted + 1)/m * wx1 * wy0 * wz1
+    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted + 1, iz_shifted + 1)/m * wx0 * wy1 * wz1
+    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted + 1, iz_shifted + 1)/m * wx1 * wy1 * wz1
 
-    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted, iz_shifted) * wx0 * wy0 * wz0
-    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted, iz_shifted) * wx1 * wy0 * wz0
-    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted + 1, iz_shifted) * wx0 * wy1 * wz0
-    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted + 1, iz_shifted) * wx1 * wy1 * wz0
-    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted, iz_shifted + 1) * wx0 * wy0 * wz1
-    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted, iz_shifted + 1) * wx1 * wy0 * wz1
-    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted + 1, iz_shifted + 1) * wx0 * wy1 * wz1
-    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted + 1, iz_shifted + 1) * wx1 * wy1 * wz1
+    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted, iz_shifted)/m * wx0 * wy0 * wz0
+    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted, iz_shifted)/m * wx1 * wy0 * wz0
+    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted + 1, iz_shifted)/m * wx0 * wy1 * wz0
+    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted + 1, iz_shifted)/m * wx1 * wy1 * wz0
+    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted, iz_shifted + 1)/m * wx0 * wy0 * wz1
+    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted, iz_shifted + 1)/m * wx1 * wy0 * wz1
+    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted + 1, iz_shifted + 1)/m * wx0 * wy1 * wz1
+    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted + 1, iz_shifted + 1)/m * wx1 * wy1 * wz1
 
-    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted, iz_shifted) * wx0 * wy0 * wz0
-    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted, iz_shifted) * wx1 * wy0 * wz0
-    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted + 1, iz_shifted) * wx0 * wy1 * wz0
-    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted + 1, iz_shifted) * wx1 * wy1 * wz0
-    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted, iz_shifted + 1) * wx0 * wy0 * wz1
-    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted, iz_shifted + 1) * wx1 * wy0 * wz1
-    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted + 1, iz_shifted + 1) * wx0 * wy1 * wz1
-    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted + 1, iz_shifted + 1) * wx1 * wy1 * wz1
+    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted, iz_shifted)/m * wx0 * wy0 * wz0
+    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted, iz_shifted)/m * wx1 * wy0 * wz0
+    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted + 1, iz_shifted)/m * wx0 * wy1 * wz0
+    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted + 1, iz_shifted)/m * wx1 * wy1 * wz0
+    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted, iz_shifted + 1)/m * wx0 * wy0 * wz1
+    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted, iz_shifted + 1)/m * wx1 * wy0 * wz1
+    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted + 1, iz_shifted + 1)/m * wx0 * wy1 * wz1
+    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted + 1, iz_shifted + 1)/m * wx1 * wy1 * wz1
 
     ! update particle 
     particles(7, thread_id) = acc_x
@@ -1224,7 +1224,7 @@ program nbody_sim
     use cufft_interface
     use your_mom
     implicit none
-    integer, parameter::N = 513
+    integer, parameter::N = 5
     integer, parameter:: nx =4 , ny = 4, nz = 4
     real, Dimension(nx,ny,nz):: density_grid_test
     real, Dimension(3,nx,ny,nz):: gravity_grid_test
