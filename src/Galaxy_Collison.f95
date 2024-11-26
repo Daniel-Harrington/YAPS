@@ -1339,11 +1339,15 @@ program nbody_sim
     !call check_energy(density,nx,ny,nz,particles,N,smbh_m,E_0)
     !print*, 'Got past check energy - lol no'
 
-    do i=1, 10000
+    do i=1, 2
         ! These 2 will go inside a do loop until end condition
         ! call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
         call particle_to_grid_cuda<<<(N-1)/256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
         call cudaDeviceSynchronize()
+
+        density_grid_test = density_grid_r_d
+
+        print*, density_grid_test
         ! add an if for however many steps 
         ! again, like fft stays on gpu but composes with a fft call
         call check_energy(density_grid_r_d, density_grid_c_d, nx, ny, nz, particles_d, N, m, smbh1_m, smbh2_m, E)
