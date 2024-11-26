@@ -1,7 +1,6 @@
 !#########################################
 !Compile with
-!    pgf95 -mp -Mcuda=fastmath,cc35,cc50,cc60,fma,unroll,flushz,lineinfo -ta=nvidia -tp=haswell -fast -O2 -Minfo=all -mcmodel=medium Galaxy_Collison.f95 -L/usr/local/cuda-9.2/lib64 -lcufft -lcupti
-!
+!    pgf95 -g -mp -Mcuda=fastmath,cc35,cc50,cc60,fma,unroll,flushz,lineinfo -ta=nvidia -tp=haswell -O2 -Minfo=all -mcmodel=medium Galaxy_Collison.f95 -L/usr/local/cuda-9.2/lib64 -lcufft -lcupti
 !#########################################
 !_____________________________________________________________________________
 ! modules
@@ -366,7 +365,7 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
     istat = atomicadd(density_grid_r_d(ix+nx2+1, iy+ny2, iz+nz2+1), m * wx1 * wy0 * wz1)
     istat = atomicadd(density_grid_r_d(ix+nx2, iy+ny2+1, iz+nz2+1), m * wx0 * wy1 * wz1)
     istat = atomicadd(density_grid_r_d(ix+nx2+1, iy+ny2+1, iz+nz2+1), m * wx1 * wy1 * wz1)
-
+  
 end subroutine particle_to_grid_cuda
 
     attributes(global) subroutine grid_to_particle_cuda(acceleration_grid, particles, N, nx, ny, nz, dx, dy, dz,smbh1_m, smbh2_m)
@@ -374,8 +373,8 @@ end subroutine particle_to_grid_cuda
 
     integer, value :: N,nx,ny,nz
     real(kind(0.0)), value :: dx,dy,dz,smbh1_m,smbh2_m
-    real(kind(0.0)), dimension(:,:),device:: particles
-    real,dimension(:,:,:,:),device:: acceleration_grid
+    real(kind(0.0)), dimension(:,:):: particles
+    real,dimension(:,:,:,:):: acceleration_grid
 
     !thread and block indecies 
     integer :: i,ix,iy,iz,ix_shifted,iy_shifted,iz_shifted,thread_id
@@ -395,12 +394,12 @@ end subroutine particle_to_grid_cuda
     delta = (x_max - x_min) / real(nx/2 - 1)
     delta_z = (z_max - z_min) / real(nz/2 - 1)
 
-    print*, delta
 
     ! Compte global thread ID
     thread_id = (blockIdx%x - 1) * blockDim%x + threadIdx%x
     if (thread_id > N) return 
 
+    
     ! Read particle positons 
     x = particles(1, thread_id)
     y = particles(2, thread_id)
@@ -413,7 +412,7 @@ end subroutine particle_to_grid_cuda
     if  (thread_id == 2) then
         m = smbh2_m
     else 
-        m = 1/N 
+        m = 1.0/N 
     end if 
 
     ! Ignore particles outside the range [-1.5, 1.5]
@@ -492,6 +491,7 @@ end subroutine particle_to_grid_cuda
     particles(7, thread_id) = acc_x
     particles(8, thread_id) = acc_y
     particles(9, thread_id) = acc_z
+
 end subroutine grid_to_particle_cuda 
 end module device_ops
     
@@ -1336,14 +1336,14 @@ program nbody_sim
     !call check_energy(density,nx,ny,nz,particles,N,smbh_m,E_0)
     !print*, 'Got past check energy - lol no'
 
-    do i=1, 2
+    do i=1, 100
         ! These 2 will go inside a do loop until end condition
         ! call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
         call particle_to_grid_cuda<<<(N-1)/256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
         call cudaDeviceSynchronize()
 
         density_grid_test = density_grid_r_d
-        print*, "Density Cube:"
+        !print*, "Density Cube:"
         print*, density_grid_test
         ! add an if for however many steps 
         ! again, like fft stays on gpu but composes with a fft call
@@ -1373,6 +1373,11 @@ program nbody_sim
         call cudaDeviceSynchronize()
         
         print*, "Got past grid to particle"
+        particles = particles_d
+        print*, "Particles (only 10)"
+        do i = 1, 10
+           print*, particles(:,i) 
+        end do
         ! integration step pushes all positions
         ! ill need to revisit thread count block size just going quick
         ! to get structure
