@@ -1368,7 +1368,7 @@ program nbody_sim
         print*, gravity_grid_test
         !! here zac call your grid to particles kernel
         !! heres and example you can change dimensions and stuff
-        call grid_to_particle_cuda<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_r_d,particles_d,N_d,nx, ny, nz,dx, dy, dz,smbh1_m,smbh2_m)
+        call grid_to_particle_cuda<<<(N-1)/256,256>>>gravity_grid_r_d,particles_d,N_d,nx, ny, nz,dx, dy, dz,smbh1_m,smbh2_m)
         call cudaDeviceSynchronize()
         
         print*, "Got past grid to particle"
