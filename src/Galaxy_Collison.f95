@@ -122,11 +122,13 @@ attributes(global) subroutine compute_gravities(gravity_grid_c_d,density_grid_c_
     call syncthreads
 end subroutine compute_gravities
 
-attributes(global) subroutine normalize3d(arr,nx,ny,nz,factor)
+attributes(global) subroutine normalize3d(arr1,arr2,nx,ny,nz,factor)
     implicit none
     integer,value::nx,ny,nz
-    real, dimension(3,nx,ny,nz),device::arr
-    integer::i,j,K
+    real, dimension(3,nx,ny,nz),intent(in),device::arr1
+    real, dimension(3,nx,ny,nz),intent(out),device::arr2
+
+    integer::i,j,K,i_shifted,j_shifted,k_shifted
     
     real,value::factor
     i = (blockIdx%x-1)*blockDim%x + threadIdx%x
@@ -134,7 +136,15 @@ attributes(global) subroutine normalize3d(arr,nx,ny,nz,factor)
     k = (blockIdx%z-1)*blockDim%z + threadIdx%z
 
     if ( i<= nx .and. j<=ny .and. k <= nz) then
-        arr(1:3,i,j,k) = arr(1:3,i,j,k) *factor
+        i_shifted = i - nx / 2
+        j_shifted = j - ny / 2
+        k_shifted = k - nz / 2
+
+        ! Clamp indices to stay within bounds
+        if (i_shifted < 1) i_shifted = 1
+        if (j_shifted < 1) j_shifted = 1
+        if (k_shifted < 1) k_shifted = 1
+        arr2(1:3,i_shifted,j_shifted,k_shifted) = arr1(1:3,i,j,k) *factor
     endif
 end subroutine
 attributes(global) subroutine calculate_U(density_grid_c_d,nx,ny,nz,U)
@@ -458,7 +468,12 @@ end subroutine particle_to_grid_cuda
     ix_shifted = ix+nx/4
     iy_shifted = iy+ny/4
     iz_shifted = iz+nz/4
-
+    if (ix_shifted < 1) ix = 1
+    if (ix_shifted >= nx / 2) ix = nx /2 -1
+    if (iy_shifted < 1) iy = 1
+    if (iy_shifted >= ny / 2) iy = ny / 2 - 1
+    if (iz_shifted < 1) iz = 1
+    if (iz_shifted >= nz / 2) iz = nz / 2 - 1
 
     ! Interpolate acceleration from the grid to the particle position
     acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted, iz_shifted)/m * wx0 * wy0 * wz0
@@ -794,7 +809,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     ! Apply factor ONLY to the acceleration dimensions not the index ones
     
     
-    call normalize3d<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_r_d,nx,ny,nz,factor)
+    call normalize3d<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_r_d,gravity_grid_r_d,nx,ny,nz,factor)
     call cudaDeviceSynchronize()
 
     !print *, "normalized"
