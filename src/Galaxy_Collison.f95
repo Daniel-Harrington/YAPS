@@ -137,13 +137,13 @@ attributes(global) subroutine normalize3d_and_shift(gravity_grid_r_d,gravity_gri
     if ( i<= nx .and. j<=ny .and. k <= nz) then
         k_shifted = k + nz / 4
 
-        gravity_grid_r_d_shifted(1,i,j,k_shifted) = 0.0 + gravity_grid_r_d(1,i,j,k)*factor
+        gravity_grid_r_d_shifted(1,i,j,k_shifted) = gravity_grid_r_d(1,i,j,k)*factor
 
-        gravity_grid_r_d_shifted(2,i,j,k_shifted) = 0.0 +  gravity_grid_r_d(2,i,j,k)*factor
+        gravity_grid_r_d_shifted(2,i,j,k_shifted) = gravity_grid_r_d(2,i,j,k)*factor
 
    
 
-        gravity_grid_r_d_shifted(3,i,j,k_shifted) = 0.0 +  gravity_grid_r_d(3,i,j,k)*factor
+        gravity_grid_r_d_shifted(3,i,j,k_shifted) = gravity_grid_r_d(3,i,j,k)*factor
     endif
     call syncthreads
 
@@ -816,7 +816,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     gridDimZ = (nz+ blockDimZ - 1) / blockDimZ
 
     gravity_grid_r_d_shifted = 0.0
-    call normalize3d_and_shift<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_r_d,gravity_grid_r_d_shifted,nx,ny,nz,factor)
+    call normalize3d_and_shift<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_r_d,gravity_grid_r_d,nx,ny,nz,factor)
 
     call cudaDeviceSynchronize()
     print*, "inside fft"
@@ -1238,8 +1238,8 @@ program nbody_sim
     use cufft_interface
     use your_mom
     implicit none
-    integer, parameter::N = 257
-    integer, parameter:: nx =8 , ny = 8, nz = 8
+    integer, parameter::N = 1028
+    integer, parameter:: nx =16 , ny = 16, nz = 16
     real, Dimension(nx,ny,nz):: density_grid_test
     real, Dimension(3,nx,ny,nz):: gravity_grid_test
 
@@ -1397,10 +1397,7 @@ program nbody_sim
         call cudaGetLastError(ierr)
         if (ierr /= 0) print*, "CUDA Error:", ierr
         print*, "got past fft_step"
-      
-        gravity_grid_test = gravity_grid_r_d_shifted
-        print*,gravity_grid_test
-                
+    
         
         print*, "Got past grid to particle"
         ! do t = 1, nz
@@ -1437,7 +1434,9 @@ program nbody_sim
         
         ! ! Close the file
         ! close(20)
-        ! print*,gravity_grid_test
+
+        gravity_grid_test = gravity_grid_r_d
+        print*,gravity_grid_test
 
         !! here zac call your grid to particles kernel
         !! heres and example you can change dimensions and stuff
