@@ -133,7 +133,7 @@ attributes(global) subroutine normalize3d(arr,nx,ny,nz,factor)
     j = (blockIdx%y-1)*blockDim%y + threadIdx%y
     k = (blockIdx%z-1)*blockDim%z + threadIdx%z
 
-    if ( k <= nx .and. j<=ny .and. k <= nz) then
+    if ( i<= nx .and. j<=ny .and. k <= nz) then
         arr(i,j,k) = arr(i,j,k) *factor
     endif
 end subroutine
@@ -360,7 +360,7 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
     istat = atomicadd(density_grid_r_d(ix+nx2, iy+ny2, iz+nz2), m * wx0 * wy0 * wz0)
     istat = atomicadd(density_grid_r_d(ix+nx2+1, iy+ny2, iz+nz2), m * wx1 * wy0 * wz0)
     istat = atomicadd(density_grid_r_d(ix+nx2, iy+ny2+1, iz+nz2), m * wx0 * wy1 * wz0)
-    istat = atomicadd(density_grid_r_d(ix+nx2+1, iy+ny2+1, iz+nx2), m * wx1 * wy1 * wz0)
+    istat = atomicadd(density_grid_r_d(ix+nx2+1, iy+ny2+1, iz+nz2), m * wx1 * wy1 * wz0)
     istat = atomicadd(density_grid_r_d(ix+nx2, iy+ny2, iz+nz2+1), m * wx0 * wy0 * wz1)
     istat = atomicadd(density_grid_r_d(ix+nx2+1, iy+ny2, iz+nz2+1), m * wx1 * wy0 * wz1)
     istat = atomicadd(density_grid_r_d(ix+nx2, iy+ny2+1, iz+nz2+1), m * wx0 * wy1 * wz1)
