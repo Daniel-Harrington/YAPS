@@ -1237,7 +1237,7 @@ program nbody_sim
     real, Dimension(3,nx,ny,nz):: gravity_grid_test
 
     integer:: checkpoint,steps,k,i,ierr
-    real:: m,smbh1_m,smbh2_m,E_0,E,dx,dy,dz
+    real:: m,smbh1_m,smbh2_m,E_0,E,dx,dy,dz,t,u,v,w
     real, dimension(9,N)::particles
     real, parameter::dt = 10e-5 ! Needed to keep Energy change way below 10^-5
     real,dimension(3)::p
@@ -1378,10 +1378,18 @@ program nbody_sim
         gravity_grid_test = gravity_grid_r_d
         print*, "All HAIL Gravity Cube:"
         print*, gravity_grid_test
+        do t = 1, 3
+            do u = 1, nx
+                do v = 1, ny
+                    do w = 1, nz
+                        print*, "Index (", t, ",", u, ",", v, ",", w, ") = ", gravity_grid_test(t, u, v, w)
+                    end do
+                end do
+            end do
+        end do
         !! here zac call your grid to particles kernel
         !! heres and example you can change dimensions and stuff
         
-        print*, dx,dy,dz
         
         call grid_to_particle_cuda<<<(N+256-1)/256,256>>>(gravity_grid_r_d,particles_d,N,nx, ny, nz,dx, dy, dz,smbh1_m,smbh2_m)
         ! Check for errors
