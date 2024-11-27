@@ -1331,7 +1331,7 @@ program nbody_sim
 
     print*, 'Got past particle to grid'
     ! call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
-    call particle_to_grid_cuda<<<(N-1)/256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
+    call particle_to_grid_cuda<<<(N+256-1)/256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
     call cudaDeviceSynchronize()
     !call check_energy(density,nx,ny,nz,particles,N,smbh_m,E_0)
     !print*, 'Got past check energy - lol no'
@@ -1339,7 +1339,7 @@ program nbody_sim
     do i=1, 100
         ! These 2 will go inside a do loop until end condition
         ! call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
-        call particle_to_grid_cuda<<<(N-1)/256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
+        call particle_to_grid_cuda<<<(N+256-1)/256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
         call cudaDeviceSynchronize()
 
         density_grid_test = density_grid_r_d
@@ -1367,7 +1367,7 @@ program nbody_sim
         
         print*, dx,dy,dz
         
-        call grid_to_particle_cuda<<<(N-1)/256,256>>>(gravity_grid_r_d,particles_d,N,nx, ny, nz,dx, dy, dz,smbh1_m,smbh2_m)
+        call grid_to_particle_cuda<<<(N+256-1)/256,256>>>(gravity_grid_r_d,particles_d,N,nx, ny, nz,dx, dy, dz,smbh1_m,smbh2_m)
         ! Check for errors
 
         call cudaDeviceSynchronize()
@@ -1381,7 +1381,7 @@ program nbody_sim
         ! integration step pushes all positions
         ! ill need to revisit thread count block size just going quick
         ! to get structure
-        call integration_step<<<(N-1)/256,256>>>(particles_d,N,dt)
+        call integration_step<<<(N+256-1)/256,256>>>(particles_d,N,dt)
         call cudaDeviceSynchronize()
 
         particles = particles_d
