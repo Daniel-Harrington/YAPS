@@ -1315,12 +1315,12 @@ program nbody_sim
 
 
 
-    blockDimX = 16
-    blockDimY = 16
-    blockDimZ = 16
-    gridDimX = ceiling(real(nx) / blockDimX)
-    gridDimY = ceiling(real(ny) / blockDimY)
-    gridDimZ = ceiling(real(nz) / blockDimZ)
+    blockDimX = 8
+    blockDimY = 8
+    blockDimZ = 8
+    gridDimX = (nx-1+blockDimX)/blockDimX
+    gridDimY =(nx-1+blockDimY)/blockDimY
+    gridDimZ = (nx-1+blockDimZ)/blockDimZ
         
 
     
