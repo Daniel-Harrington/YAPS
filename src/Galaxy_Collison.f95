@@ -125,7 +125,7 @@ end subroutine compute_gravities
 attributes(global) subroutine normalize3d(arr,nx,ny,nz,factor)
     implicit none
     integer,value::nx,ny,nz
-    real, dimension(nx,ny,nz),device::arr
+    real, dimension(3,nx,ny,nz),device::arr
     integer::i,j,K
     
     real,value::factor
@@ -134,7 +134,7 @@ attributes(global) subroutine normalize3d(arr,nx,ny,nz,factor)
     k = (blockIdx%z-1)*blockDim%z + threadIdx%z
 
     if ( i<= nx .and. j<=ny .and. k <= nz) then
-        arr(i,j,k) = arr(i,j,k) *factor
+        arr(1:3,i,j,k) = arr(1:3,i,j,k) *factor
     endif
 end subroutine
 attributes(global) subroutine calculate_U(density_grid_c_d,nx,ny,nz,U)
@@ -458,6 +458,7 @@ end subroutine particle_to_grid_cuda
     ix_shifted = ix+nx/4
     iy_shifted = iy+ny/4
     iz_shifted = iz+nz/4
+
 
     ! Interpolate acceleration from the grid to the particle position
     acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted, iz_shifted)/m * wx0 * wy0 * wz0
@@ -1216,7 +1217,7 @@ program nbody_sim
     use your_mom
     implicit none
     integer, parameter::N = 257
-    integer, parameter:: nx =16 , ny = 16, nz = 4
+    integer, parameter:: nx =16 , ny = 16, nz = 16
     real, Dimension(nx,ny,nz):: density_grid_test
     real, Dimension(3,nx,ny,nz):: gravity_grid_test
 
@@ -1336,7 +1337,7 @@ program nbody_sim
     !call check_energy(density,nx,ny,nz,particles,N,smbh_m,E_0)
     !print*, 'Got past check energy - lol no'
 
-    do i=1, 100
+    do i=1, 5
         ! These 2 will go inside a do loop until end condition
         ! call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
         call particle_to_grid_cuda<<<(N+256-1)/256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
@@ -1375,8 +1376,8 @@ program nbody_sim
         print*, "Got past grid to particle"
         particles = particles_d
         print*, "Particles (only 10)"
-        do i = 1, 10
-           print*, particles(:,i) 
+        do k = 1, 10
+           print*, particles(:,k) 
         end do
         ! integration step pushes all positions
         ! ill need to revisit thread count block size just going quick
@@ -1386,8 +1387,8 @@ program nbody_sim
 
         particles = particles_d
         print*, "Particles (only 10)"
-        do i = 1, 10
-           print*, particles(:,i) 
+        do k = 1, 10
+           print*, particles(:,k) 
         end do
         !print*, "Done step: ", i
 
