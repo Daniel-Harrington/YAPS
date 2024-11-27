@@ -42,10 +42,10 @@ end subroutine particle_to_grid_cuda_dummy
 
 attributes(global) subroutine compute_gravities(gravity_grid_c_d,density_grid_c_d,nx,ny,nz)
     implicit none
-    complex, Dimension(:,:,:):: density_grid_c_d
+    complex, Dimension(:,:,:),device:: density_grid_c_d
 
     ! Real and complex gravities on gpu
-    complex, Dimension(:,:,:,:):: gravity_grid_c_d
+    complex, Dimension(:,:,:,:),device:: gravity_grid_c_d
     real :: G = 1 ! Natural Units
     real,parameter:: pi = atan(1.0)*4 
     real:: constants
@@ -125,7 +125,7 @@ end subroutine compute_gravities
 attributes(global) subroutine normalize3d(arr,nx,ny,nz,factor)
     implicit none
     integer,value::nx,ny,nz
-    real, dimension(nx,ny,nz)::arr
+    real, dimension(nx,ny,nz),device::arr
     integer::i,j,K
     
     real,value::factor
@@ -139,7 +139,7 @@ attributes(global) subroutine normalize3d(arr,nx,ny,nz,factor)
 end subroutine
 attributes(global) subroutine calculate_U(density_grid_c_d,nx,ny,nz,U)
     implicit none
-    complex, Dimension(:,:,:):: density_grid_c_d
+    complex, Dimension(:,:,:),device:: density_grid_c_d
     real,parameter:: pi = atan(1.0)*4 
     integer,value::  nx,ny,nz
 
@@ -209,7 +209,7 @@ attributes(global) subroutine integration_step(particles_d, N,dt)
     implicit none
     integer :: i
     integer, value::N
-    real, dimension(:,:) :: particles_d
+    real, dimension(:,:):: particles_d
     real, value:: dt
 
 
@@ -241,7 +241,7 @@ attributes(global) subroutine integration_step(particles_d, N,dt)
 end subroutine integration_step
 attributes(global) subroutine calculate_KE(particles_d, N,m,smbh1_m,smbh2_m,KE)
 
-    real, dimension(:,:) :: particles_d
+    real, dimension(:,:),device:: particles_d
     integer,value::N
     real,value:: m,smbh1_m,smbh2_m
 
@@ -279,8 +279,8 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
     implicit none
     integer, value :: N, nx, ny, nz, nx2, ny2, nz2
     real(kind(0.0)), value :: dx, dy, dz,smbh1_m, smbh2_m
-    real(kind(0.0)),dimension(:,:):: particles_d
-    real,dimension(:,:,:)::density_grid_r_d
+    real(kind(0.0)),dimension(:,:),device:: particles_d
+    real,dimension(:,:,:),device::density_grid_r_d
 
     ! Thread and block indices
     integer :: idx, ix, iy, iz, thread_id,istat
@@ -373,8 +373,8 @@ end subroutine particle_to_grid_cuda
 
     integer, value :: N,nx,ny,nz
     real(kind(0.0)), value :: dx,dy,dz,smbh1_m,smbh2_m
-    real(kind(0.0)), dimension(:,:):: particles
-    real,dimension(:,:,:,:):: acceleration_grid
+    real(kind(0.0)), dimension(:,:),device:: particles
+    real,dimension(:,:,:,:),device:: acceleration_grid
 
     !thread and block indecies 
     integer :: i,ix,iy,iz,ix_shifted,iy_shifted,iz_shifted,thread_id
@@ -1216,7 +1216,7 @@ program nbody_sim
     use your_mom
     implicit none
     integer, parameter::N = 257
-    integer, parameter:: nx =4 , ny = 4, nz = 4
+    integer, parameter:: nx =16 , ny = 16, nz = 4
     real, Dimension(nx,ny,nz):: density_grid_test
     real, Dimension(3,nx,ny,nz):: gravity_grid_test
 
