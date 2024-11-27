@@ -122,30 +122,31 @@ attributes(global) subroutine compute_gravities(gravity_grid_c_d,density_grid_c_
     call syncthreads
 end subroutine compute_gravities
 
-attributes(global) subroutine normalize3d(arr1,arr2,nx,ny,nz,factor)
+attributes(global) subroutine normalize3d_and_shift(gravity_grid_r_d,gravity_grid_r_d_shifted,nx,ny,nz,factor)
     implicit none
     integer,value::nx,ny,nz
-    real, dimension(3,nx,ny,nz),intent(in),device::arr1
-    real, dimension(3,nx,ny,nz),intent(out),device::arr2
-
-    integer::i,j,K,i_shifted,j_shifted,k_shifted
-    
+    real, dimension(:,:,:,:),device::gravity_grid_r_d
+    real, dimension(:,:,:,:),device::gravity_grid_r_d_shifted
+    integer::i,j,K,k_shifted
     real,value::factor
     i = (blockIdx%x-1)*blockDim%x + threadIdx%x
     j = (blockIdx%y-1)*blockDim%y + threadIdx%y
     k = (blockIdx%z-1)*blockDim%z + threadIdx%z
 
-    if ( i<= nx .and. j<=ny .and. k <= nz) then
-        i_shifted = i - nx / 2
-        j_shifted = j - ny / 2
-        k_shifted = k - nz / 2
 
-        ! Clamp indices to stay within bounds
-        if (i_shifted < 1) i_shifted = 1
-        if (j_shifted < 1) j_shifted = 1
-        if (k_shifted < 1) k_shifted = 1
-        arr2(1:3,i_shifted,j_shifted,k_shifted) = arr1(1:3,i,j,k) *factor
+    if ( i<= nx .and. j<=ny .and. k <= nz) then
+        k_shifted = k + nz / 4
+
+        gravity_grid_r_d_shifted(1,i,j,k_shifted) = 0.0 + gravity_grid_r_d(1,i,j,k)*factor
+
+        gravity_grid_r_d_shifted(2,i,j,k_shifted) = 0.0 +  gravity_grid_r_d(2,i,j,k)*factor
+
+   
+
+        gravity_grid_r_d_shifted(3,i,j,k_shifted) = 0.0 +  gravity_grid_r_d(3,i,j,k)*factor
     endif
+    call syncthreads
+
 end subroutine
 attributes(global) subroutine calculate_U(density_grid_c_d,nx,ny,nz,U)
     implicit none
@@ -704,7 +705,7 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
     
 end subroutine check_energy
 
-subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_grid_c_d,nx,ny,nz,N)
+subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_grid_r_d_shifted,gravity_grid_c_d,nx,ny,nz,N)
     !###########################################################
     ! Instructions:
     !      Pass in a density grid to fill density_grid
@@ -751,13 +752,15 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
 
    
     ! Real and complex density on gpu
+    real,Dimension(3,nx,ny,nz)::gravity_grid_test
+    real, Dimension(:,:,:), allocatable,device :: density_grid_r_d
 
-    real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
     complex, Dimension(:,:,:), allocatable,device:: density_grid_c_d
 
     ! Real and complex gravities on gpu
     complex, Dimension(:,:,:,:), allocatable,device:: gravity_grid_c_d
-    real, Dimension(:,:,:,:), allocatable, device :: gravity_grid_r_d
+    real, Dimension(:,:,:,:), allocatable,device :: gravity_grid_r_d
+    real, Dimension(:,:,:,:), allocatable, device:: gravity_grid_r_d_shifted
 
     integer :: blockDimX, blockDimY, blockDimZ
     integer :: gridDimX, gridDimY, gridDimZ
@@ -805,14 +808,18 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     
 
     ! TODO: Check im not crazy and i should be using N
-    factor = 1/(nx*ny*nz)
+    factor = 1.0/real((nx*ny*nz))
     ! Apply factor ONLY to the acceleration dimensions not the index ones
-    
-    
-    call normalize3d<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_r_d,gravity_grid_r_d,nx,ny,nz,factor)
-    call cudaDeviceSynchronize()
 
-    !print *, "normalized"
+    gridDimX = (nx + blockDimX - 1) / blockDimX
+    gridDimY = (ny + blockDimY - 1) / blockDimY
+    gridDimZ = (nz+ blockDimZ - 1) / blockDimZ
+
+    gravity_grid_r_d_shifted = 0.0
+    call normalize3d_and_shift<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_r_d,gravity_grid_r_d_shifted,nx,ny,nz,factor)
+
+    call cudaDeviceSynchronize()
+    print*, "inside fft"
 
     
 end subroutine fft_step
@@ -1232,12 +1239,12 @@ program nbody_sim
     use your_mom
     implicit none
     integer, parameter::N = 257
-    integer, parameter:: nx =16 , ny = 16, nz = 16
+    integer, parameter:: nx =8 , ny = 8, nz = 8
     real, Dimension(nx,ny,nz):: density_grid_test
     real, Dimension(3,nx,ny,nz):: gravity_grid_test
 
-    integer:: checkpoint,steps,k,i,ierr
-    real:: m,smbh1_m,smbh2_m,E_0,E,dx,dy,dz,t,u,v,w
+    integer:: checkpoint,steps,k,i,ierr,t,u,v,w
+    real:: m,smbh1_m,smbh2_m,E_0,E,dx,dy,dz
     real, dimension(9,N)::particles
     real, parameter::dt = 10e-5 ! Needed to keep Energy change way below 10^-5
     real,dimension(3)::p
@@ -1263,8 +1270,9 @@ program nbody_sim
 
     ! Real and complex gravities on gpu
     complex, Dimension(:,:,:,:), allocatable,device:: gravity_grid_c_d
+    real, Dimension(:,:,:,:), allocatable, device :: gravity_grid_r_d_shifted
     real, Dimension(:,:,:,:), allocatable, device :: gravity_grid_r_d
-
+    character(len=50) :: t_string
     
     ! Allocate input and output arrays of cufft on the device memory (gpu)
     allocate(density_grid_r_d(nx, ny, nz), stat=ierr)
@@ -1281,11 +1289,15 @@ program nbody_sim
     ! allocate the gravity complex and real grids
     allocate(gravity_grid_c_d(3,nx,ny,(nz/2 +1)))
     allocate(gravity_grid_r_d(3,nx,ny,nz))
+    allocate(gravity_grid_r_d_shifted(3,nx,ny,nz))
+
 
     ! allocation particles on device
     allocate(particles_d(9,N))
 
-    
+    ! Open a file for writing gravity grid data
+    open(unit=20, file="gravity_grid_output.csv", status="replace", action="write")
+
     !##############################################
     !
     !   HOST(CPU) INITIALIZATIONS
@@ -1322,7 +1334,7 @@ program nbody_sim
 
     ! copy particles from host to device memory
     particles_d = particles
-
+  
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     ! beyond this every major step stays in device memory
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -1352,15 +1364,17 @@ program nbody_sim
     !call check_energy(density,nx,ny,nz,particles,N,smbh_m,E_0)
     !print*, 'Got past check energy - lol no'
 
-    do i=1, 5
+    do i=1, 1
         ! These 2 will go inside a do loop until end condition
         ! call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
         call particle_to_grid_cuda<<<(N+256-1)/256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
+        
         call cudaDeviceSynchronize()
 
-        density_grid_test = density_grid_r_d
+        !density_grid_test = density_grid_r_d
+        
         !print*, "Density Cube:"
-        print*, density_grid_test
+        !print*, density_grid_test
         ! add an if for however many steps 
         ! again, like fft stays on gpu but composes with a fft call
         !call check_energy(density_grid_r_d, density_grid_c_d, nx, ny, nz, particles_d, N, m, smbh1_m, smbh2_m, E)
@@ -1372,61 +1386,97 @@ program nbody_sim
         ! still stays on gpu
         ! host/cpu - style function is just composing cuda kernel functions
 
-        call fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_grid_c_d, nx,ny,nz,N)
-        
+        particles = particles_d
+        print*, "Particles (only 10)"
+            do k = 1, N
+                print*, particles(:,k) 
+            enddo
+    
+        call fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_grid_r_d_shifted,gravity_grid_c_d, nx,ny,nz,N)
+        call cudaDeviceSynchronize()
+        call cudaGetLastError(ierr)
+        if (ierr /= 0) print*, "CUDA Error:", ierr
         print*, "got past fft_step"
-        gravity_grid_test = gravity_grid_r_d
-        print*, "All HAIL Gravity Cube:"
-        print*, gravity_grid_test
-        do t = 1, 3
-            do u = 1, nx
-                do v = 1, ny
-                    do w = 1, nz
-                        print*, "Index (", t, ",", u, ",", v, ",", w, ") = ", gravity_grid_test(t, u, v, w)
-                    end do
-                end do
-            end do
-        end do
+      
+        gravity_grid_test = gravity_grid_r_d_shifted
+        print*,gravity_grid_test
+                
+        
+        print*, "Got past grid to particle"
+        ! do t = 1, nz
+        !     ! Write a header for each t block
+        !     write(t_string, '(A,I4)') "t = ", t
+        !     write(20, '(A)') trim(t_string)
+            
+        !     ! Write column headers (u values) for x-axis
+        !     write(20, '(A)', advance="no") "v/u,"
+        !     do u = 1, nx
+        !         if (u /= nx) then
+        !             write(20, '(I3,",")', advance="no") u
+        !         else
+        !             write(20, '(I3)') u
+        !         end if
+        !     end do
+            
+        !     ! Write each row for the y-axis (v values)
+        !     do v = 1, ny
+        !         write(20, '(I3,",")', advance="no") v  ! Start row with v value
+        !         do u = 1, nx
+        !             ! Write each value of the 3 components explicitly
+        !             write(20, '(3(F12.6,","))', advance="no") gravity_grid_test(1, u, v, t), &
+        !                                                     gravity_grid_test(2, u, v, t), &
+        !                                                     gravity_grid_test(3, u, v, t)
+        !         end do
+        !         write(20, *)  ! End of row
+        !     end do
+        
+        !     ! Write a blank line between t layers
+        !     write(20, *)
+        ! end do
+        
+        
+        ! ! Close the file
+        ! close(20)
+        ! print*,gravity_grid_test
+
         !! here zac call your grid to particles kernel
         !! heres and example you can change dimensions and stuff
         
         
         call grid_to_particle_cuda<<<(N+256-1)/256,256>>>(gravity_grid_r_d,particles_d,N,nx, ny, nz,dx, dy, dz,smbh1_m,smbh2_m)
         ! Check for errors
-
-        call cudaDeviceSynchronize()
         
-        print*, "Got past grid to particle"
+        print*, "after grid to p Particles (only 10)"
         particles = particles_d
-        print*, "Particles (only 10)"
-        do k = 1, 10
-           print*, particles(:,k) 
+
+        do k = 1, N
+            print*, particles(:,k) 
         end do
+        call cudaDeviceSynchronize()
+      
+      
         ! integration step pushes all positions
         ! ill need to revisit thread count block size just going quick
         ! to get structure
-        call integration_step<<<(N+256-1)/256,256>>>(particles_d,N,dt)
-        call cudaDeviceSynchronize()
+        !call integration_step<<<(N+256-1)/256,256>>>(particles_d,N,dt)
+        !call cudaDeviceSynchronize()
 
-        particles = particles_d
-        print*, "Particles (only 10)"
-        do k = 1, 10
-           print*, particles(:,k) 
-        end do
+     
         !print*, "Done step: ", i
 
         ! need a step to [pass back & write out
 
     end do
+
     ! Deallocations
 
-
+    close(20)
     !deallocate density grids
     deallocate(density_grid_r_d,density_grid_c_d)
     
 
     ! deallocate gravity grids
-    deallocate(gravity_grid_r_d,gravity_grid_c_d)
+    deallocate(gravity_grid_r_d,gravity_grid_c_d,gravity_grid_r_d_shifted)
 
     ! deallocate particles
     deallocate(particles_d)
