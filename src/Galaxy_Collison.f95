@@ -789,7 +789,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     
 
     ! TODO: Check im not crazy and i should be using N
-    factor = 1/N
+    factor = 1/(nx*ny*nz)
     ! Apply factor ONLY to the acceleration dimensions not the index ones
     
     
