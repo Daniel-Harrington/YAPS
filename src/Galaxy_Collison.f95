@@ -822,96 +822,74 @@ end module your_mom
 
 
 
-subroutine initialize_particles2(particle_arr,N,Ra)
-    !
-    !   Iniatiates the particle positions to form a single galaxy after 2 have been merged 
-    !   The larger SMBH in the center and a smaller one now orbating near 
-    ! 
+subroutine initialize_particles2(particles, N, Ra, disk_mass, smbh1_mass, smbh2_mass, R_disk, R_cl, G, rho_c)
     implicit none
-    real :: r, theta, pitch_angle, arm_separation, random_offset, rotation_velocity
-    Integer, intent(in) :: N, Ra
-    Real,Dimension(9,N),intent(out) ::  particle_arr
-    real, parameter :: pi = atan(1.0)*4 
-    real, parameter :: angle = pi/4 ! Anlge of galaxy 2 relative to galaxy 1
-    real, parameter :: offset = 5
-    Real::x,y,z,v_x,v_y,v_z,a_x,a_y,a_z
-    Integer::i, particles_in_galaxy
-    real :: spiral_factor, cos_angle, sin_angle
-       
-    ! data keyword cleanly sets all these to 0.0 as we need for 
-    ! ever initial velocity and acceleration in the cloud
-    data v_x,v_y,v_z,a_x,a_y,a_z /6*0.0/
- 
-    pitch_angle = 15.0 * pi / 180.0      ! Pitch angle in radians
-    spiral_factor = 1.0 / tan(pitch_angle)  ! Controls spiral tightness
-    arm_separation = pi / 2               ! Separation between arms (4 arms)
 
-    particles_in_galaxy = (N-2)/2 ! equal size galaxies for now 
+    ! Inputs
+    integer, intent(in) :: N
+    real, intent(in) :: Ra, disk_mass, smbh1_mass, smbh2_mass, R_disk, R_cl, G, rho_c
+    real, dimension(9, N), intent(out) :: particles
 
-    cos_angle = cos(angle)
-    sin_angle = sin(angle)
+    ! Local variables
+    integer :: i
+    real :: r, theta, z, v_c, v_x, v_y, v_z, random_factor
 
-    ! Initialize first SMBH
-    particle_arr(1:3, 1) = (/ 0.0, 0.0, 0.0 /)  ! Position
-    particle_arr(4:6, 1) = (/ 0.0, 0.0, 0.0 /)  ! Velocity
-    particle_arr(7:9, 1) = (/ 0.0, 0.0, 0.0 /)  ! Acceleration
+    call random_seed()
 
-    ! Initialize second SMBH
-    call random_number(r)
-    r = Ra/4 + r * (Ra - Ra/4)
-    call random_number(random_offset)
-    random_offset = (random_offset - 0.5) * Ra / 10
-    ! compute_gravitiesulate theta for a logarithmic spiral
-    theta = spiral_factor * log(r) + mod(i, 4) * arm_separation + random_offset / r
-    
-    particle_arr(1:3, 2) = (/ (r + random_offset) * cos(theta), (r + random_offset) * sin(theta), (2.0 * random_offset - 1.0) * 0.01 * Ra /)  ! Position
-    rotation_velocity = sqrt(1000/(1*r + abs(random_offset)))
-    particle_arr(4:6, 2) = (/ rotation_velocity * sin(theta), -rotation_velocity * cos(theta), 0.0 /)  ! Velocity
-    particle_arr(7:9, 2) = (/ 0.0, 0.0, 0.0 /)  ! Acceleration
+    ! Initialize particles
+    do i = 1, N
+        if (i == 1) then
+            ! Central SMBH (M1)
+            particles(1:3, i) = (/ 0.0, 0.0, 0.0 /)
+            particles(4:6, i) = (/ 0.0, 0.0, 0.0 /)
+            particles(7:9, i) = (/ 0.0, 0.0, 0.0 /)
 
-    ! Particles in first galaxy
-    do i = 3, N
-        ! Set radial distance r within the range [Ra/4, Ra] with random variation
-        call random_number(r)
-        r = Ra/4 + r * (Ra - Ra/4)
+        elseif (i == 2) then
+            ! Secondary SMBH (M2)
+            particles(1:3, i) = (/ Ra * 0.5, 0.0, 0.0 /)
+            particles(4:6, i) = (/ 0.0, sqrt(G * smbh1_mass / max(Ra * 0.5, 1e-6)), 0.0 /)
+            particles(7:9, i) = (/ 0.0, 0.0, 0.0 /)
 
-        ! Generate random offset for more natural spread around the arms
-        call random_number(random_offset)
-        random_offset = (random_offset - 0.5) * Ra / 10
+        else
+            ! Disk particles
+            call random_number(r)
+            r = 1+(R_disk-1)*r
+            if (r < 1e-6) r = 1e-6  ! Avoid very small values
 
-        ! compute_gravitiesulate theta for a logarithmic spiral
-        theta = spiral_factor * log(r) + mod(i, 4) * arm_separation + random_offset / r
+            call random_number(theta)
+            theta = theta * 2.0 * atan(1.0) * 4.0
 
-        ! Set x, y, z for a spiral galaxy
-        x = (r + random_offset) * cos(theta)
-        y = (r + random_offset) * sin(theta)
-        z = (2.0 * random_offset - 1.0) * 0.01 * Ra  ! slight z offset for thickness
+            call random_number(z)
+            z = (z - 0.5) * 2.0 * 0.08 * R_disk
 
-        ! Assign rotation velocities, decreasing with distance from center
-        rotation_velocity = sqrt(1000/(1*r + abs(random_offset)))  ! Example galaxy-like rotation curve
-        v_x = rotation_velocity * sin(theta)
-        v_y = -rotation_velocity * cos(theta)
-        v_z = 0.0
+            v_c = sqrt(G * (smbh1_mass + smbh2_mass + compute_M_cl(r, rho_c, R_cl) + disk_mass * r / R_disk) / r)
+            if (v_c /= v_c) stop "NaN detected in v_c"
 
-        particle_arr(:,i) = (/x,y,z,v_x,v_y,v_z,a_x,a_y,a_z/)
+            call random_number(random_factor)
+            v_x = -v_c * sin(theta) * (1.0 + (random_factor - 0.5) * 0.16)
+            call random_number(random_factor)
+            v_y = v_c * cos(theta) * (1.0 + (random_factor - 0.5) * 0.16)
+            v_z = 0.0
+            
+            particles(:, i) = (/ r * cos(theta), r * sin(theta), z, v_x, v_y, v_z, 0.0, 0.0, 0.0 /)
+            
+            
+        end if
+    end do
 
-    end do 
 
-    ! Open a file with a unique unit number
-    
-    ! open(unit=10, file='particledata.csv', status="replace", action="write")
+contains
+    real function compute_M_cl(r, rho_c, R_cl)
+        implicit none
+        real, intent(in) :: r, rho_c, R_cl
+        real :: term1, term2
 
-    ! ! Write header
-    ! write(10, '(A)') "x,y,z,v_x,v_y,v_z,a_x,a_y,a_z"
-
-    ! ! Write data
-    ! do i = 1, N
-    !     write(10, '(9(F12.6, ","))') particle_arr(:, i)
-    ! end do
-
-    ! ! Close the file
-    ! close(10)
+        term1 = 0.5 * log(1.0 + (r / max(R_cl, 1e-6))**2)
+        term2 = (r / max(R_cl, 1e-6))**2 / (1.0 + (r / max(R_cl, 1e-6))**2)
+        compute_M_cl = 4.0 * atan(1.0) * 4.0 * rho_c * R_cl**3 * (term1 + term2)
+    end function compute_M_cl
 end subroutine initialize_particles2
+
 
 
 subroutine initialize_particles(particle_arr,N,Ra)
@@ -1231,10 +1209,14 @@ program nbody_sim
     use cufft_interface
     use your_mom
     implicit none
-    integer, parameter::N = 257
+    integer, parameter::N = 100000
     integer, parameter:: nx =16 , ny = 16, nz = 16
     real, Dimension(nx,ny,nz):: density_grid_test
     real, Dimension(3,nx,ny,nz):: gravity_grid_test
+    real, parameter :: R_disk = 10.0, R_cl = 1.0, Ra = 10.0
+    real, parameter :: disk_mass = 0.5e8, smbh1_m = 0.5e8, smbh2_m = 1e7
+    real, parameter :: G = 1.0  ! Gravitational constant in normalized units
+    real :: rho_c
 
     integer:: checkpoint,steps,k,i,ierr
     real:: m,smbh1_m,smbh2_m,E_0,E,dx,dy,dz,t,u,v,w
@@ -1292,12 +1274,13 @@ program nbody_sim
     !
     !##############################################
 
-    
-    call initialize_particles2(particles,N,1)
+    ! Compute central density of the spherical cluster
+    rho_c = (disk_mass / (4.0 * atan(1.0) * 4.0 * R_cl**3)) * (3.0 / (2.0 * log(2.0)))
 
-    smbh1_m = 1.0  ! just set to whatever it is
-    smbh2_m = smbh1_m/10
-    m = 1/N
+    ! Initialize particles
+    call initialize_particles2(particles, N, Ra, disk_mass, smbh1_m, smbh2_m, R_disk, R_cl, G, rho_c)
+    
+    m = 1.0
     E = 0
     dx = 1.0/(nx-1) 
     dy = 1.0/(ny-1)
