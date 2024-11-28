@@ -310,8 +310,8 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
     x_max = 1.5
     y_min = -1.5
     y_max = 1.5
-    z_min = -1.5
-    z_max = 1.5
+    z_min = -0.5
+    z_max = 0.5
     delta = (x_max - x_min) / ((nx/2)-1)
     delta_z = (z_max - z_min) / ((nz/2)-1)
 
@@ -330,14 +330,13 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
     z = particles_d(3,thread_id)
 
     ! Assign mass based on particle ID
-    if (thread_id==1) then
-        m = smbh1_m 
-    end if 
-    if (thread_id==2) then
-        m = smbh2_m 
-    else
-        m = 1.0 /N 
-    end if 
+    if (thread_id == 1) then 
+        m = smbh1_m
+    else if  (thread_id == 2) then
+        m = smbh2_m
+    else 
+        m = 1.0/N 
+    end if
 
     
     ! determine grid cell indicies 
@@ -346,12 +345,12 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
     iz = int(floor((z-z_min)/delta_z)) + 1
 
     !clamp indecies within bounds 
-    if (ix < 1) ix = 1
-    if (ix >= nx/2) ix = nx/2 -1
-    if (iy < 1) iy = 1
-    if (iy >= ny) iy = ny/2 -1
-    if (iz < 1) iz = 1
-    if (iz >= nz) iz = nz/2 -1
+    !if (ix < 1) ix = 1
+    !if (ix >= nx/2) ix = nx/2 -1
+    !if (iy < 1) iy = 1
+    !if (iy >= ny) iy = ny/2 -1
+    !if (iz < 1) iz = 1
+    !if (iz >= nz) iz = nz/2 -1
 
     x_i = x_min + (ix - 1) * delta
     y_j = y_min + (iy - 1) * delta
@@ -368,6 +367,10 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
     wy1 = y_rel 
     wz0 = 1.0 - z_rel 
     wz1 = z_rel
+
+    !if (wx0 < 0.0 .or. wx1 < 0.0 .or. wy0 < 0.0 .or. wy1 < 0.0 .or. wz0 < 0.0 .or. wz1 < 0.0) then 
+    !    print*, (x-x_min)/delta, (y-y_min)/delta, (z-z_min)/delta_z, x,y,z,ix,iy,iz,x_i,y_j,z_k,wx0,wy0,wz0
+    !end if
 
     ! Update density feiled (atomic operations to prevent race condition)
 
@@ -404,8 +407,8 @@ end subroutine particle_to_grid_cuda
     x_max = 1.5
     y_min = -1.5
     y_max = 1.5
-    z_min = -1.5
-    z_max = 1.5
+    z_min = -0.5
+    z_max = 0.5
     delta = (x_max - x_min) / real(nx/2 - 1)
     delta_z = (z_max - z_min) / real(nz/2 - 1)
 
@@ -423,8 +426,7 @@ end subroutine particle_to_grid_cuda
     ! Assign mass based on particle ID
     if (thread_id == 1) then 
         m = smbh1_m
-    end if 
-    if  (thread_id == 2) then
+    else if  (thread_id == 2) then
         m = smbh2_m
     else 
         m = 1.0/N 
@@ -441,12 +443,12 @@ end subroutine particle_to_grid_cuda
     iz = int(floor((z - z_min) / delta_z)) + 1
 
     ! Clamp indices within bounds
-    if (ix < 1) ix = 1
-    if (ix >= nx / 2) ix = nx / 2 - 1
-    if (iy < 1) iy = 1
-    if (iy >= ny / 2) iy = ny / 2 - 1
-    if (iz < 1) iz = 1
-    if (iz >= nz / 2) iz = nz / 2 - 1
+    !if (ix < 1) ix = 1
+    !if (ix >= nx / 2) ix = nx / 2 - 1
+    !if (iy < 1) iy = 1
+    !if (iy >= ny / 2) iy = ny / 2 - 1
+    !if (iz < 1) iz = 1
+    !if (iz >= nz / 2) iz = nz / 2 - 1
 
     x_i = x_min + (ix - 1) * delta
     y_j = y_min + (iy - 1) * delta
@@ -1246,8 +1248,8 @@ program nbody_sim
     use cufft_interface
     use particle_kernels
     implicit none
-    integer, parameter::N = 100000000
-    integer, parameter:: nx =512 , ny = 512, nz = 256
+    integer, parameter::N = 100000
+    integer, parameter:: nx =256 , ny = 256, nz = 128
     real, Dimension(nx,ny,nz):: density_grid_test
     real, Dimension(3,nx,ny,nz):: gravity_grid_test
 
@@ -1375,7 +1377,7 @@ program nbody_sim
     !print*, 'Got past check energy - lol no'
     
 
-    do i=1, 10
+    do i=1, 6000
         ! These 2 will go inside a do loop until end condition
         ! call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
         density_grid_r_d = 0.0
