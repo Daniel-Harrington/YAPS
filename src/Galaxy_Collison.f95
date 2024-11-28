@@ -837,7 +837,60 @@ end module particle_kernels
 
 
 subroutine initialize_particles2(particles, N, Ra, disk_mass, smbh1_mass, smbh2_mass, R_disk, R_cl, G, rho_c)
+subroutine initialize_particles2(particles, N, Ra, disk_mass, smbh1_mass, smbh2_mass, R_disk, R_cl, G, rho_c)
     implicit none
+
+    ! Inputs
+    integer, intent(in) :: N
+    real, intent(in) :: Ra, disk_mass, smbh1_mass, smbh2_mass, R_disk, R_cl, G, rho_c
+    real, dimension(9, N), intent(out) :: particles
+
+    ! Local variables
+    integer :: i
+    real :: r, theta, z, v_c, v_x, v_y, v_z, random_factor
+
+    call random_seed()
+
+    ! Initialize particles
+    do i = 1, N
+        if (i == 1) then
+            ! Central SMBH (M1)
+            particles(1:3, i) = (/ 0.0, 0.0, 0.0 /)
+            particles(4:6, i) = (/ 0.0, 0.0, 0.0 /)
+            particles(7:9, i) = (/ 0.0, 0.0, 0.0 /)
+
+        elseif (i == 2) then
+            ! Secondary SMBH (M2)
+            particles(1:3, i) = (/ Ra * 0.5, 0.0, 0.0 /)
+            particles(4:6, i) = (/ 0.0, sqrt(G * smbh1_mass / max(Ra * 0.5, 1e-6)), 0.0 /)
+            particles(7:9, i) = (/ 0.0, 0.0, 0.0 /)
+
+        else
+            ! Disk particles
+            call random_number(r)
+            r = 1+(R_disk-1)*r
+            if (r < 1e-6) r = 1e-6  ! Avoid very small values
+
+            call random_number(theta)
+            theta = theta * 2.0 * atan(1.0) * 4.0
+
+            call random_number(z)
+            z = (z - 0.5) * 2.0 * 0.08 * R_disk
+
+            v_c = sqrt(G * (smbh1_mass + smbh2_mass + compute_M_cl(r, rho_c, R_cl) + disk_mass * r / R_disk) / r)
+            if (v_c /= v_c) stop "NaN detected in v_c"
+
+            call random_number(random_factor)
+            v_x = -v_c * sin(theta) * (1.0 + (random_factor - 0.5) * 0.16)
+            call random_number(random_factor)
+            v_y = v_c * cos(theta) * (1.0 + (random_factor - 0.5) * 0.16)
+            v_z = 0.0
+            
+            particles(:, i) = (/ r * cos(theta), r * sin(theta), z, v_x, v_y, v_z, 0.0, 0.0, 0.0 /)
+            
+            
+        end if
+    end do
 
     ! Inputs
     integer, intent(in) :: N
@@ -903,6 +956,7 @@ contains
         compute_M_cl = 4.0 * atan(1.0) * 4.0 * rho_c * R_cl**3 * (term1 + term2)
     end function compute_M_cl
 end subroutine initialize_particles2
+
 
 
 subroutine initialize_particles(particle_arr,N,Ra)
