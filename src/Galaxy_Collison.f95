@@ -51,7 +51,7 @@ attributes(global) subroutine compute_gravities(gravity_grid_c_d,density_grid_c_
     real:: constants
     complex:: p_term
     integer,value::  nx,ny,nz
-
+    complex, parameter :: i_c = (0.0, 1.0)  ! complex i
     ! Iteration
     integer::k_x,k_y,k_z
     complex::k1,k2,k3
@@ -93,12 +93,12 @@ attributes(global) subroutine compute_gravities(gravity_grid_c_d,density_grid_c_
             if (k_x < nx/2) then
                 k1 = del_kx*k_x
             else
-                k1 = del_kx*k_x - nx
+                k1 = del_kx*(k_x - nx)
             endif
             if (k_y < ny/2) then
-                k2 = del_ky*k_y
+                k2 = del_ky*(k_y)
             else
-                k2 = del_ky*k_y - ny
+                k2 = del_ky*(k_y - ny)
             endif
             
             ! z freq always > 0
@@ -116,9 +116,9 @@ attributes(global) subroutine compute_gravities(gravity_grid_c_d,density_grid_c_
             p_term = density_grid_c_d(k_x, k_y, k_z) * K * constants
 
             ! Sets x,y,z accelerations in fourier space on device grid
-            gravity_grid_c_d(1, k_x, k_y, k_z) = k1 * p_term
-            gravity_grid_c_d(2, k_x, k_y, k_z) = k2 * p_term
-            gravity_grid_c_d(3, k_x, k_y, k_z) = k3 * p_term
+            gravity_grid_c_d(1, k_x, k_y, k_z) = i_c*k1 * p_term
+            gravity_grid_c_d(2, k_x, k_y, k_z) = i_c*k2 * p_term
+            gravity_grid_c_d(3, k_x, k_y, k_z) = i_c*k3 * p_term
         endif
 end subroutine compute_gravities
 
@@ -1254,7 +1254,7 @@ program nbody_sim
     integer:: checkpoint,steps,k,i,ierr,t,u,v,w
     real:: m,smbh1_m,smbh2_m,E_0,E,dx,dy,dz
     real, dimension(9,N)::particles
-    real, parameter::dt = 10e-5 ! Needed to keep Energy change way below 10^-5
+    real, parameter::dt = 1e-6 !Needed to keep Energy change way below 10^-5
     real,dimension(3)::p
     logical::animate
     integer:: particle_to_track = 50
@@ -1375,7 +1375,7 @@ program nbody_sim
     !print*, 'Got past check energy - lol no'
     
 
-    do i=1, 100
+    do i=1, 1000
         ! These 2 will go inside a do loop until end condition
         ! call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
         density_grid_r_d = 0.0
