@@ -24,7 +24,7 @@ This project is part of **UTSC PHYD57**, focusing on galaxy evolution simulation
 - **100 million particles** representing stars, dark matter, and gas.
 - **2 Supermassive Black Holes (SMBHs)** resulted from recently merged galaxes
 - **Fourier-based gravitational computations** to resolve forces in O(NLog(N)) computations
-- CUDA-accelerated particle-grid interpolations and integration.
+- **CUDA-accelerated** particle-grid interpolations and integration.
 
 The simulation aims to observe the behavior of galaxies as they merge, with a particular focus on the **final parsec problem**, where the SMBHs slow down due to dynamical friction.
 
