@@ -345,9 +345,9 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
     iy = int(floor((y-y_min)/delta)) + 1
     iz = int(floor((z-z_min)/delta_z)) + 1
 
-    if (ix < 1 .or. iy < 1 .or. iz < 1) then 
-        print *, 'particle out of range'
-    end if 
+    ! if (ix < 1 .or. iy < 1 .or. iz < 1) then 
+    !     print *, 'particle out of range'
+    ! end if 
 
     !clamp indecies within bounds 
     !if (ix < 1) ix = 1
@@ -419,15 +419,15 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
     !end if
 
 
-    if (wx0 < 0.0 .or. wx1 < 0.0) then
-        print*, (x-x_min)/delta, x, x_i, ix
-    end if
-    if (wy0 < 0.0 .or. wy1 < 0.0) then
-        print*, (y-y_min)/delta, y,y_j, iy
-    end if
-    if (wz0 < 0.0 .or. wz1 < 0.0) then
-        print*, (z-z_min)/delta, z,z_k, iz
-    end if
+    ! if (wx0 < 0.0 .or. wx1 < 0.0) then
+    !     print*, (x-x_min)/delta, x, x_i, ix
+    ! end if
+    ! if (wy0 < 0.0 .or. wy1 < 0.0) then
+    !     print*, (y-y_min)/delta, y,y_j, iy
+    ! end if
+    ! if (wz0 < 0.0 .or. wz1 < 0.0) then
+    !     print*, (z-z_min)/delta, z,z_k, iz
+    ! end if
 
     ! Update density feiled (atomic operations to prevent race condition)
 
@@ -563,37 +563,38 @@ end subroutine particle_to_grid_cuda
     if (iz_shifted >= nz / 2) iz = nz / 2 - 1
 
     ! Interpolate acceleration from the grid to the particle position
-    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted, iz_shifted)/m * wx0 * wy0 * wz0
-    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted, iz_shifted)/m * wx1 * wy0 * wz0
-    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted + 1, iz_shifted)/m * wx0 * wy1 * wz0
-    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted + 1, iz_shifted)/m * wx1 * wy1 * wz0
-    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted, iz_shifted + 1)/m * wx0 * wy0 * wz1
-    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted, iz_shifted + 1)/m * wx1 * wy0 * wz1
-    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted + 1, iz_shifted + 1)/m * wx0 * wy1 * wz1
-    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted + 1, iz_shifted + 1)/m * wx1 * wy1 * wz1
+    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted, iz_shifted) * wx0 * wy0 * wz0
+    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted, iz_shifted) * wx1 * wy0 * wz0
+    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted + 1, iz_shifted) * wx0 * wy1 * wz0
+    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted + 1, iz_shifted) * wx1 * wy1 * wz0
+    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted, iz_shifted + 1) * wx0 * wy0 * wz1
+    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted, iz_shifted + 1) * wx1 * wy0 * wz1
+    acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted + 1, iz_shifted + 1)* wx0 * wy1 * wz1
+    acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted + 1, iz_shifted + 1) * wx1 * wy1 * wz1
 
-    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted, iz_shifted)/m * wx0 * wy0 * wz0
-    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted, iz_shifted)/m * wx1 * wy0 * wz0
-    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted + 1, iz_shifted)/m * wx0 * wy1 * wz0
-    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted + 1, iz_shifted)/m * wx1 * wy1 * wz0
-    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted, iz_shifted + 1)/m * wx0 * wy0 * wz1
-    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted, iz_shifted + 1)/m * wx1 * wy0 * wz1
-    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted + 1, iz_shifted + 1)/m * wx0 * wy1 * wz1
-    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted + 1, iz_shifted + 1)/m * wx1 * wy1 * wz1
+    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted, iz_shifted) * wx0 * wy0 * wz0
+    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted, iz_shifted) * wx1 * wy0 * wz0
+    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted + 1, iz_shifted) * wx0 * wy1 * wz0
+    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted + 1, iz_shifted)* wx1 * wy1 * wz0
+    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted, iz_shifted + 1) * wx0 * wy0 * wz1
+    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted, iz_shifted + 1) * wx1 * wy0 * wz1
+    acc_y = acc_y + acceleration_grid(2, ix_shifted, iy_shifted + 1, iz_shifted + 1) * wx0 * wy1 * wz1
+    acc_y = acc_y + acceleration_grid(2, ix_shifted + 1, iy_shifted + 1, iz_shifted + 1) * wx1 * wy1 * wz1
 
-    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted, iz_shifted)/m * wx0 * wy0 * wz0
-    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted, iz_shifted)/m * wx1 * wy0 * wz0
-    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted + 1, iz_shifted)/m * wx0 * wy1 * wz0
-    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted + 1, iz_shifted)/m * wx1 * wy1 * wz0
-    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted, iz_shifted + 1)/m * wx0 * wy0 * wz1
-    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted, iz_shifted + 1)/m * wx1 * wy0 * wz1
-    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted + 1, iz_shifted + 1)/m * wx0 * wy1 * wz1
-    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted + 1, iz_shifted + 1)/m * wx1 * wy1 * wz1
+    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted, iz_shifted) * wx0 * wy0 * wz0
+    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted, iz_shifted) * wx1 * wy0 * wz0
+    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted + 1, iz_shifted) * wx0 * wy1 * wz0
+    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted + 1, iz_shifted) * wx1 * wy1 * wz0
+    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted, iz_shifted + 1) * wx0 * wy0 * wz1
+    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted, iz_shifted + 1) * wx1 * wy0 * wz1
+    acc_z = acc_z + acceleration_grid(3, ix_shifted, iy_shifted + 1, iz_shifted + 1) * wx0 * wy1 * wz1
+    acc_z = acc_z + acceleration_grid(3, ix_shifted + 1, iy_shifted + 1, iz_shifted + 1) * wx1 * wy1 * wz1
 
     ! update particle 
     particles(7, thread_id) = acc_x
     particles(8, thread_id) = acc_y
     particles(9, thread_id) = acc_z
+    
     call syncthreads
 
 end subroutine grid_to_particle_cuda 
@@ -777,7 +778,7 @@ contains
 !     call cudaDeviceSynchronize()
 
 !     !print*, "Calculated potential"
-!     call calculate_KE<<<(N-1)/256,256>>>(particles_d,N,m,smbh1_m,smbh2_m,KE)
+!     call calculate_KE<<<(N-1)/blockDim,blockDim>>>(particles_d,N,m,smbh1_m,smbh2_m,KE)
 !     call cudaDeviceSynchronize()
 
 !     !print*, "Calculated KE"
@@ -908,7 +909,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
 
     istat = cudaDeviceSynchronize()	
 
-    print*, "inside fft"
+    !print*, "inside fft"
 
     
 end subroutine fft_step
@@ -1318,11 +1319,11 @@ program nbody_sim
     integer:: checkpoint,steps,k,i,ierr,t,u,v,w
     real:: m,E_0,E,dx,dy,dz
     real, dimension(9,N)::particles
-    real, parameter::dt = 0.001 !Needed to keep Energy change way below 10^-5
+    real, parameter::dt = 0.01 !Needed to keep Energy change way below 10^-5
     real,dimension(3)::p
     logical::animate
     integer:: particle_to_track = 50
-    integer :: blockDimX, blockDimY, blockDimZ
+    integer :: blockDimX, blockDimY, blockDimZ,blockDim
     integer :: gridDimX, gridDimY, gridDimZ
 
     integer:: plan,istat
@@ -1396,7 +1397,11 @@ program nbody_sim
 
     ! copy particles from host to device memory
     particles_d = particles
-  
+    print*, "Particles (only 10)"
+        do k = 1, 10
+            print*, particles(:,k) 
+        enddo
+
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     ! beyond this every major step stays in device memory
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -1404,7 +1409,7 @@ program nbody_sim
     print*, 'Got past initialization'
 
 
-
+    blockDim = 1024
     blockDimX = 8
     blockDimY = 8
     blockDimZ = 8
@@ -1421,21 +1426,21 @@ program nbody_sim
     
 
     print*, 'Got past particle to grid'
-    ! call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
-    call particle_to_grid_cuda<<<(N+256-1)/256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
+    ! call particle_to_grid_cuda<<<blockDim,blockDim>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
+    call particle_to_grid_cuda<<<(N+blockDim-1)/blockDim,blockDim>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
     istat = cudaDeviceSynchronize()	
 
     !call check_energy(density,nx,ny,nz,particles,N,smbh_m,E_0)
     !print*, 'Got past check energy - lol no'
     
 
-    do i=1, 50
+    do i=1, 200
         ! These 2 will go inside a do loop until end condition
-        ! call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
+        ! call particle_to_grid_cuda<<<blockDim,blockDim>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
         density_grid_r_d = 0.0
         istat = cudaDeviceSynchronize()	
 
-        call particle_to_grid_cuda<<<(N+256-1)/256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
+        call particle_to_grid_cuda<<<(N+blockDim-1)/blockDim,blockDim>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
         istat = cudaDeviceSynchronize()	
 
 
@@ -1465,7 +1470,7 @@ program nbody_sim
         !! here zac call your grid to particles kernel
         !! heres and example you can change dimensions and stuff
         
-        call grid_to_particle_cuda<<<(N+256-1)/256,256>>>(gravity_grid_r_d_shifted,particles_d,N,nx, ny, nz,dx, dy, dz,smbh1_m,smbh2_m)
+        call grid_to_particle_cuda<<<(N+blockDim-1)/blockDim,blockDim>>>(gravity_grid_r_d_shifted,particles_d,N,nx, ny, nz,dx, dy, dz,smbh1_m,smbh2_m)
         istat = cudaDeviceSynchronize()	
 
         ! Check for errors
@@ -1482,7 +1487,7 @@ program nbody_sim
         ! integration step pushes all positions
         ! ill need to revisit thread count block size just going quick
         ! to get structure
-        call integration_step<<<(N+256-1)/256,256>>>(particles_d,N,dt)
+        call integration_step<<<(N+blockDim-1)/blockDim,blockDim>>>(particles_d,N,dt)
         istat = cudaDeviceSynchronize()	
 
      
