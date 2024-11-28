@@ -80,7 +80,7 @@ attributes(global) subroutine compute_gravities(gravity_grid_c_d,density_grid_c_
     ! step anyways
     
     
-    epsilon = 10e-8
+    epsilon = 10e-6
     constants =  -4*pi*G
     ! From dividing a full 2pi wave over the length of each cell
     ! we get these deltas https://en.wikipedia.org/wiki/Wave_vector#Definition
@@ -120,7 +120,6 @@ attributes(global) subroutine compute_gravities(gravity_grid_c_d,density_grid_c_
             gravity_grid_c_d(2, k_x, k_y, k_z) = k2 * p_term
             gravity_grid_c_d(3, k_x, k_y, k_z) = k3 * p_term
         endif
-    call syncthreads
 end subroutine compute_gravities
 
 attributes(global) subroutine normalize3d_and_shift(gravity_grid_r_d,gravity_grid_r_d_shifted,nx,ny,nz,factor)
