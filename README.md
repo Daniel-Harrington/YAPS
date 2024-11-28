@@ -1,4 +1,4 @@
-# Galaxy Collision Simulation
+# Yet Another Particle Simulation
 
 ![Galaxy Simulation](https://img.shields.io/badge/Simulation-Galaxy%20Collision-blue)
 ![NVIDIA CUDA](https://img.shields.io/badge/CUDA-NVIDIA-green)
