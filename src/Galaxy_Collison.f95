@@ -136,7 +136,7 @@ attributes(global) subroutine normalize3d_and_shift(gravity_grid_r_d,gravity_gri
 
     if ( i<= nx .and. j<=ny .and. k <= nz) then
         
-        k_shifted = k
+        k_shifted = k + nz/4
 
         gravity_grid_r_d_shifted(1,i,j,k_shifted) = gravity_grid_r_d(1,i,j,k)*factor
 
@@ -1246,8 +1246,8 @@ program nbody_sim
     use cufft_interface
     use particle_kernels
     implicit none
-    integer, parameter::N = 64
-    integer, parameter:: nx =4 , ny = 4, nz = 4
+    integer, parameter::N = 100000000
+    integer, parameter:: nx =512 , ny = 512, nz = 256
     real, Dimension(nx,ny,nz):: density_grid_test
     real, Dimension(3,nx,ny,nz):: gravity_grid_test
 
@@ -1444,7 +1444,7 @@ program nbody_sim
     close(20)
     particles = particles_d
     print*, "Particles (only 10)"
-        do k = 1, N
+        do k = 1, 10
             print*, particles(:,k) 
         enddo
 
