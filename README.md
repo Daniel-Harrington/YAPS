@@ -14,7 +14,6 @@ A high-performance astrophysics simulation modelingblack hole migration resultin
 - [Dependencies](#dependencies)
 - [Installation](#installation)
 - [Usage](#usage)
-- [License](#license)
 
 ---
 
