@@ -4,7 +4,7 @@
 ![NVIDIA CUDA](https://img.shields.io/badge/CUDA-NVIDIA-green)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
-A high-performance astrophysics simulation modeling black hole migration resulting from the merger of a large host galaxy with a smaller galaxy. The simulation uses **CUDA acceleration** and **Fourier transforms** to compute gravitational interactions between 100 million particles, including two supermassive black holes (SMBHs). The project aims to study the **final parsec problem** in galaxy mergers and was made as a final project in PHYD57.
+A high-performance astrophysics simulation modeling black hole migration resulting from the merger of a large host galaxy with a smaller galaxy. The simulation uses **CUDA acceleration** and **Fourier transforms** to compute gravitational interactions between 100 million particles, including two supermassive black holes (SMBHs). The project aims to study the **final parsec problem** in galaxy mergers.
 
 ---
 
