@@ -1375,7 +1375,7 @@ program nbody_sim
     !print*, 'Got past check energy - lol no'
     
 
-    do i=1, 1000
+    do i=1, 10
         ! These 2 will go inside a do loop until end condition
         ! call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
         density_grid_r_d = 0.0
