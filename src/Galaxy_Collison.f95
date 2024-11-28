@@ -1231,7 +1231,7 @@ program nbody_sim
     real, Dimension(nx,ny,nz):: density_grid_test
     real, Dimension(3,nx,ny,nz):: gravity_grid_test
     real, parameter :: R_disk = 10.0, R_cl = 1.0, Ra = 10.0
-    real, parameter :: disk_mass = 0.5e8, smbh1_m = 0.5e8, smbh2_m = 1e7
+    real, parameter :: disk_mass = 0.5, smbh1_m = 0.5, smbh2_m = 0.05
     real, parameter :: G = 1.0  ! Gravitational constant in normalized units
     real :: rho_c
 
