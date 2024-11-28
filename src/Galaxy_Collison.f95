@@ -63,7 +63,7 @@ attributes(global) subroutine compute_gravities(gravity_grid_c_d,density_grid_c_
     ! we get these deltas https://en.wikipedia.org/wiki/Wave_vector#Definition
 
     real::del_kx,del_ky,del_kz
-
+    real::epsilon
     k_x = (blockIdx%x-1)*blockDim%x + threadIdx%x
     k_y = (blockIdx%y-1)*blockDim%y + threadIdx%y
     k_z = (blockIdx%z-1)*blockDim%z + threadIdx%z
@@ -80,6 +80,7 @@ attributes(global) subroutine compute_gravities(gravity_grid_c_d,density_grid_c_
     ! step anyways
     
     
+    epsilon = 10e-8
     constants =  -4*pi*G
     ! From dividing a full 2pi wave over the length of each cell
     ! we get these deltas https://en.wikipedia.org/wiki/Wave_vector#Definition
@@ -107,7 +108,7 @@ attributes(global) subroutine compute_gravities(gravity_grid_c_d,density_grid_c_
 
             !k * p(k) *(-4)*pi*G/|K|^2
 
-            K = (abs(k1)**2 + abs(k2)**2 + abs(k3)**2)**(-1)
+            K = (abs(k1)**2 + abs(k2)**2 + abs(k3)**2 + epsilon)**(-1)
 
 
 
@@ -1375,7 +1376,7 @@ program nbody_sim
     !print*, 'Got past check energy - lol no'
     
 
-    do i=1, 10
+    do i=1, 100
         ! These 2 will go inside a do loop until end condition
         ! call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
         density_grid_r_d = 0.0
@@ -1410,7 +1411,6 @@ program nbody_sim
 
         !! here zac call your grid to particles kernel
         !! heres and example you can change dimensions and stuff
-        
         
         call grid_to_particle_cuda<<<(N+256-1)/256,256>>>(gravity_grid_r_d_shifted,particles_d,N,nx, ny, nz,dx, dy, dz,smbh1_m,smbh2_m)
         istat = cudaDeviceSynchronize()	
