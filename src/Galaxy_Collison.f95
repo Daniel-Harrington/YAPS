@@ -127,7 +127,7 @@ attributes(global) subroutine normalize3d_and_shift(gravity_grid_r_d,gravity_gri
     integer,value::nx,ny,nz
     real, dimension(:,:,:,:),device::gravity_grid_r_d
     real, dimension(:,:,:,:),device::gravity_grid_r_d_shifted
-    integer::i,j,K,k_shifted
+    integer::i,j,K,ishifted,jshifted,k_shifted
     real,value::factor
     i = (blockIdx%x-1)*blockDim%x + threadIdx%x
     j = (blockIdx%y-1)*blockDim%y + threadIdx%y
@@ -136,15 +136,19 @@ attributes(global) subroutine normalize3d_and_shift(gravity_grid_r_d,gravity_gri
 
     if ( i<= nx .and. j<=ny .and. k <= nz) then
         
-        k_shifted = k + nz/4
+        ! Shift array by half in each dim
+        ishifted = mod(i+nx/2-1,nx)+1
+        jshifted = mod(j+ny/2-1,ny)+1
+        k_shifted = mod(k + nz/2 - 1, nz) + 1
 
-        gravity_grid_r_d_shifted(1,i,j,k_shifted) = gravity_grid_r_d(1,i,j,k)*factor
+        
+        gravity_grid_r_d_shifted(1,ishifted,jshifted,k_shifted) = gravity_grid_r_d(1,i,j,k)*factor
 
-        gravity_grid_r_d_shifted(2,i,j,k_shifted) = gravity_grid_r_d(2,i,j,k)*factor
+        gravity_grid_r_d_shifted(2,ishifted,jshifted,k_shifted) = gravity_grid_r_d(2,i,j,k)*factor
 
    
 
-        gravity_grid_r_d_shifted(3,i,j,k_shifted) = gravity_grid_r_d(3,i,j,k)*factor
+        gravity_grid_r_d_shifted(3,ishifted,jshifted,k_shifted) = gravity_grid_r_d(3,i,j,k)*factor
     endif
     call syncthreads
 
@@ -161,7 +165,6 @@ attributes(global) subroutine calculate_U(density_grid_c_d,nx,ny,nz,U)
     complex::k1,k2,k3
     real::K, p_mag,epsilon
     real,device::U
-    real, shared :: U_shared
 
     integer::istat
 
@@ -182,7 +185,6 @@ attributes(global) subroutine calculate_U(density_grid_c_d,nx,ny,nz,U)
     !######################################################
     !Compute Potential in Fourier Space
     !#################################################
-    U_shared = 0.0
     call syncthreads
 
 
@@ -219,13 +221,10 @@ attributes(global) subroutine calculate_U(density_grid_c_d,nx,ny,nz,U)
             if (k_x > 0) then       
                 ! may have errors, debugging
                 p_mag = density_grid_c_d(k_x,k_y,k_z)
-                U_shared  = U_shared  - p_mag*K
+                istat = atomicadd(U,-p_mag*K)
             end if
         endif
     call syncthreads
-    if (threadIdx%x == 1) then
-        istat = atomicAdd(U, U_shared)
-    end if
 end subroutine calculate_U
 attributes(global) subroutine integration_step(particles_d, N,dt)
     implicit none
@@ -263,21 +262,19 @@ attributes(global) subroutine integration_step(particles_d, N,dt)
 
 end subroutine integration_step
 attributes(global) subroutine calculate_KE(particles_d, N,m,smbh1_m,smbh2_m,KE)
-
+    use cudafor
     real, dimension(:,:),device:: particles_d
     integer,value::N
     real,value:: m,smbh1_m,smbh2_m
 
     real,device::KE
-    real, shared :: KE_shared
 
     integer::istat
 
     real,dimension(3),device::v_i
     i = (blockIdx%x-1)*blockDim%x + threadIdx%x
     
-    KE_shared = 0.0
-    call syncthreads
+  
     if (i==1) then
         
         ! Add KE for Supermassive seperately 
@@ -285,25 +282,24 @@ attributes(global) subroutine calculate_KE(particles_d, N,m,smbh1_m,smbh2_m,KE)
 
         ! get velocities
         v_i = particles_d(4:6,1)
-        KE_shared = KE_shared + smbh1_m* 0.5* sum(v_i**2)
+        istat = atomicadd(KE,smbh1_m*0.5* sum(v_i**2))
+
     else if(i==2)then
         ! Add KE for Supermassive seperately 
         ! assuming it is particle 2 (index 2)
         ! get velocities
         v_i = particles_d(4:6,2)
-        KE_shared = KE_shared + smbh2_m* 0.5* sum(v_i**2)
+        istat = atomicadd(KE,smbh2_m*0.5* sum(v_i**2))
+
     else if (i<=N) then
         ! get velocities
 
         v_i = particles_d(4:6,i)
 
-        KE_shared = KE_shared + m* 0.5* sum(v_i**2)
+        istat = atomicadd(KE,0.5*m*sum(v_i**2))
     
     endif
     call syncthreads
-    if (threadIdx%x == 1) then
-        istat = atomicAdd(KE, KE_shared)
-    end if
 
 end subroutine calculate_KE
 ! A in works Subroutine that does particle to gid on GPU
@@ -324,12 +320,12 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
     
 
     ! predefined
-    x_min = -15.0
-    x_max = 15.0
-    y_min = -15.0
-    y_max = 15.0
-    z_min = -10.0
-    z_max = 10.0
+    x_min = -1000
+    x_max = 1000
+    y_min = -1000
+    y_max = 1000
+    z_min = -1000
+    z_max = 1000
     delta = (x_max - x_min) / ((nx/2)-1)
     delta_z = (z_max - z_min) / ((nz/2)-1)
 
@@ -448,6 +444,8 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
     ! end if
 
     ! Update density feiled (atomic operations to prevent race condition)
+    ! ignore outside bounds within valid bounds
+    if (ix+nx2 < 1 .or. ix+nx2 >= nx .or. iy+ny2 < 1 .or. iy+ny2 >= ny .or. iz+nz2 < 1 .or. iz+nz2 >= nz) return
 
     istat = atomicadd(density_grid_r_d(ix+nx2, iy+ny2, iz+nz2), m * wx0 * wy0 * wz0)
     istat = atomicadd(density_grid_r_d(ix+nx2+1, iy+ny2, iz+nz2), m * wx1 * wy0 * wz0)
@@ -478,12 +476,12 @@ end subroutine particle_to_grid_cuda
     real(kind(0.0)) :: acc_x , acc_y, acc_z
 
     ! Predefined 
-    x_min = -15.0
-    x_max = 15.0
-    y_min = -15.0
-    y_max = 15.0
-    z_min = -10.0
-    z_max = 10.0
+    x_min = -1000
+    x_max = 1000
+    y_min = -1000
+    y_max = 1000
+    z_min = -1000
+    z_max = 1000
     delta = (x_max - x_min) / real(nx/2 - 1)
     delta_z = (z_max - z_min) / real(nz/2 - 1)
 
@@ -581,6 +579,8 @@ end subroutine particle_to_grid_cuda
     if (iz_shifted >= nz / 2) iz = nz / 2 - 1
 
     ! Interpolate acceleration from the grid to the particle position
+    if (ix_shifted < 1 .or. ix_shifted >= nx .or.iy_shifted < 1 .or. iy_shifted >= ny .or.iz_shifted < 1 .or. iz_shifted >= nz) return
+
     acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted, iz_shifted) * wx0 * wy0 * wz0
     acc_x = acc_x + acceleration_grid(1, ix_shifted + 1, iy_shifted, iz_shifted) * wx1 * wy0 * wz0
     acc_x = acc_x + acceleration_grid(1, ix_shifted, iy_shifted + 1, iz_shifted) * wx0 * wy1 * wz0
@@ -801,7 +801,7 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
     istat = cudaDeviceSynchronize()
 
     !print*, "Calculated potential"
-    call calculate_KE<<<(N-1)/blockDim,blockDim>>>(particles_d,N,m,smbh1_m,smbh2_m,KE_d)
+    call calculate_KE<<<(N + blockDim-1)/blockDim,blockDim>>>(particles_d,N,m,smbh1_m,smbh2_m,KE_d)
     istat = cudaDeviceSynchronize()
 
     !print*, "Calculated KE"
@@ -812,7 +812,7 @@ subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N
 
     
     ! combine energies
-            E = U + KE
+ E = U + KE
 
     
 end subroutine check_energy
@@ -1331,7 +1331,7 @@ program nbody_sim
     use cufft_interface
     use particle_kernels
     implicit none
-    integer, parameter::N = 10000
+    integer, parameter::N = 1000
     integer, parameter:: nx =36 , ny = 36, nz = 16  
     real, Dimension(nx,ny,nz):: density_grid_test
     real, Dimension(3,nx,ny,nz):: gravity_grid_test
@@ -1343,7 +1343,7 @@ program nbody_sim
     integer:: checkpoint,steps,k,i,ierr,t,u,v,w
     real:: m,E_0,E,dx,dy,dz
     real, dimension(9,N)::particles
-    real, parameter::dt = 0.1 !Needed to keep Energy change way below 10^-5
+    real, parameter::dt = 0.01 !Needed to keep Energy change way below 10^-5
     real,dimension(3)::p
     logical::animate
     integer:: particle_to_track = 50
@@ -1403,6 +1403,10 @@ program nbody_sim
     ! Initialize particles
     call initialize_particles2(particles, N, Ra, disk_mass, smbh1_m, smbh2_m, R_disk, R_cl, G, rho_c)
 
+    open(unit=10, file='test.dat',action='write')
+    do k = 1, N
+        write(10,*) particles(1,k),particles(2,k),particles(3,k)
+    end do
 
     m = 0.5/N
     E_0 = 0.0
@@ -1456,13 +1460,22 @@ program nbody_sim
 
     
     !print*, 'Got past check energy - lol no'
-    
+    call check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N,m,smbh1_m,smbh2_m,E_0,plan)
 
-    do i=1, 200
+    call check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N,m,smbh1_m,smbh2_m,E,plan)
 
-        if (i==1) then
-            call check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N,m,smbh1_m,smbh2_m,E_0,plan)
-            print*, E_0
+    print*, "Done step: ", 0
+    print*, "Relative Energy Change: ",(E-E_0)/E_0
+    do i=1, 50000
+        if (mod(i,1000)==0) then
+            particles = particles_d
+            do k = 1, N
+                write(10,*) particles(1,k),particles(2,k),particles(3,k)
+            end do
+            call check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N,m,smbh1_m,smbh2_m,E,plan)
+
+            print*, "Done step: ", i
+            print*, "Relative Energy Change: ",(E-E_0)/E_0
         endif
         ! These 2 will go inside a do loop until end condition
         ! call particle_to_grid_cuda<<<blockDim,blockDim>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
@@ -1479,7 +1492,6 @@ program nbody_sim
         !print*, density_grid_test
         ! add an if for however many steps 
         ! again, like fft stays on gpu but composes with a fft call
-        call check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N,m,smbh1_m,smbh2_m,E,plan)
 
 
         !print*, 'Got past second energy check'
@@ -1521,8 +1533,7 @@ program nbody_sim
         istat = cudaDeviceSynchronize()	
 
      
-        print*, "Done step: ", i
-        print*, "Relative Energy Change: ",(E-E_0)/E_0
+      
         ! need a step to [pass back & write out
 
     end do
