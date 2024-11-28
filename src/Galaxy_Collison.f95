@@ -135,7 +135,8 @@ attributes(global) subroutine normalize3d_and_shift(gravity_grid_r_d,gravity_gri
 
 
     if ( i<= nx .and. j<=ny .and. k <= nz) then
-        k_shifted = k + nz / 4
+        
+        k_shifted = k
 
         gravity_grid_r_d_shifted(1,i,j,k_shifted) = gravity_grid_r_d(1,i,j,k)*factor
 
@@ -248,6 +249,7 @@ attributes(global) subroutine integration_step(particles_d, N,dt)
         particles_d(4:6,i) =particles_d(4:6,i)+particles_d(7:9,i)*dt*0.5
 
     endif
+    call syncthreads
 
 end subroutine integration_step
 attributes(global) subroutine calculate_KE(particles_d, N,m,smbh1_m,smbh2_m,KE)
@@ -283,6 +285,8 @@ attributes(global) subroutine calculate_KE(particles_d, N,m,smbh1_m,smbh2_m,KE)
         KE = KE + m* 0.5* sum(v_i**2)
     
     endif
+    call syncthreads
+
 end subroutine calculate_KE
 ! A in works Subroutine that does particle to gid on GPU
 attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
@@ -315,7 +319,6 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
     ny2 = ny/4
     nz2 = nz/4
 
-    density_grid_r_d = 0.0
 
     !compute global thread ID
     thread_id = (blockIdx%x -1) * blockDim%x + threadIdx%x
@@ -376,7 +379,8 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
     istat = atomicadd(density_grid_r_d(ix+nx2+1, iy+ny2, iz+nz2+1), m * wx1 * wy0 * wz1)
     istat = atomicadd(density_grid_r_d(ix+nx2, iy+ny2+1, iz+nz2+1), m * wx0 * wy1 * wz1)
     istat = atomicadd(density_grid_r_d(ix+nx2+1, iy+ny2+1, iz+nz2+1), m * wx1 * wy1 * wz1)
-  
+    call syncthreads
+
 end subroutine particle_to_grid_cuda
 
     attributes(global) subroutine grid_to_particle_cuda(acceleration_grid, particles, N, nx, ny, nz, dx, dy, dz,smbh1_m, smbh2_m)
@@ -508,6 +512,7 @@ end subroutine particle_to_grid_cuda
     particles(7, thread_id) = acc_x
     particles(8, thread_id) = acc_y
     particles(9, thread_id) = acc_z
+    call syncthreads
 
 end subroutine grid_to_particle_cuda 
 end module device_ops
@@ -589,123 +594,123 @@ module particle_kernels
     implicit none
     
 contains
-subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N,m,smbh1_m,smbh2_m,E)
-    !###########################################################
-    ! Instructions:
-    !      This function is NON Desctructive, ie not operating
-    !      in-place on the density grid, call it after the recompute of the
-    !      particle densities and before the integration step
-    !      
-    !      nx,nz,ny are grid dimensions
-    !       
-    !      pass in the supermassive black holes mass
-    !      into smbh_m
-    !
-    !       density_grid : real(nx,ny,nz)
-    !            nx,ny,nz      : int,int, N
-    !           particles      : real(9,N)
-    !           smbh_m         : real
-    !               N          : int
-    !               E          : real
-    !
-     !##########################################################
-    use precision
-    use cufft_interface
-    use device_ops
-    implicit none
+! subroutine check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N,m,smbh1_m,smbh2_m,E)
+!     !###########################################################
+!     ! Instructions:
+!     !      This function is NON Desctructive, ie not operating
+!     !      in-place on the density grid, call it after the recompute of the
+!     !      particle densities and before the integration step
+!     !      
+!     !      nx,nz,ny are grid dimensions
+!     !       
+!     !      pass in the supermassive black holes mass
+!     !      into smbh_m
+!     !
+!     !       density_grid : real(nx,ny,nz)
+!     !            nx,ny,nz      : int,int, N
+!     !           particles      : real(9,N)
+!     !           smbh_m         : real
+!     !               N          : int
+!     !               E          : real
+!     !
+!      !##########################################################
+!     use precision
+!     use cufft_interface
+!     use device_ops
+!     implicit none
     
-    !########################
-    !   Host Initializations
-    !#########################
+!     !########################
+!     !   Host Initializations
+!     !#########################
     
-    integer::  nx,ny,nz,N
+!     integer::  nx,ny,nz,N
     
-    integer :: blockDimX, blockDimY, blockDimZ
-    integer :: gridDimX, gridDimY, gridDimZ
+!     integer :: blockDimX, blockDimY, blockDimZ
+!     integer :: gridDimX, gridDimY, gridDimZ
 
 
-    ! Energy compute_acceleration
-    real::U,E,KE,m,smbh1_m,smbh2_m
+!     ! Energy compute_acceleration
+!     real::U,E,KE,m,smbh1_m,smbh2_m
     
-    integer::V
+!     integer::V
 
-     ! Constants
+!      ! Constants
 
-    real,parameter:: pi = atan(1.0)*4 
+!     real,parameter:: pi = atan(1.0)*4 
 
-    real :: G = 1 ! Natural Units
+!     real :: G = 1 ! Natural Units
 
-    ! Iteration
-    integer::i
+!     ! Iteration
+!     integer::i
 
-    ! Cuda Variables for plan process
-    !cufftHandle plan identifier and error
-    integer::status,plan
+!     ! Cuda Variables for plan process
+!     !cufftHandle plan identifier and error
+!     integer::status,plan
 
-    !###################################
-    !   Device Initialization
-    !###################################    
-    !################################### 
+!     !###################################
+!     !   Device Initialization
+!     !###################################    
+!     !################################### 
 
-    real,Dimension(:,:),device::particles_d
-    real,Dimension(:,:,:),device::density_grid_r_d
-    complex,Dimension(:,:,:),device::density_grid_c_d
+!     real,Dimension(:,:),device::particles_d
+!     real,Dimension(:,:,:),device::density_grid_r_d
+!     complex,Dimension(:,:,:),device::density_grid_c_d
 
     
-    !#######################################
-    !   Forward FFT
-    !#######################################
-    !print*,"beginning fft"
+!     !#######################################
+!     !   Forward FFT
+!     !#######################################
+!     !print*,"beginning fft"
    
 
 
-    ! 3D R2C Fourier Transform execution
-    call cufftExecR2C(plan,density_grid_r_d,density_grid_c_d)
-    !print*,"FINISHED     fft"
+!     ! 3D R2C Fourier Transform execution
+!     call cufftExecR2C(plan,density_grid_r_d,density_grid_c_d)
+!     !print*,"FINISHED     fft"
 
-    !######################################################
-    !Compute Gravitational Potential in Fourier Space
-    !#####################################  ############
+!     !######################################################
+!     !Compute Gravitational Potential in Fourier Space
+!     !#####################################  ############
     
-    ! Define block dimensions
-    blockDimX = 8
-    blockDimY = 8
-    blockDimZ = 8
+!     ! Define block dimensions
+!     blockDimX = 8
+!     blockDimY = 8
+!     blockDimZ = 8
 
-    gridDimX = (nx + blockDimX - 1) / blockDimX
-    gridDimY = (ny + blockDimY - 1) / blockDimY
-    gridDimZ = ((nz/2 +1) + blockDimZ - 1) / blockDimZ
+!     gridDimX = (nx + blockDimX - 1) / blockDimX
+!     gridDimY = (ny + blockDimY - 1) / blockDimY
+!     gridDimZ = ((nz/2 +1) + blockDimZ - 1) / blockDimZ
 
 
  
-    ! get Volume of cube
-    V = nx*ny*nz
+!     ! get Volume of cube
+!     V = nx*ny*nz
 
-    ! Reset U,KE
+!     ! Reset U,KE
 
-    U=0.0
-    KE = 0.0
-    !print*, "got to just before potential launch"
-    call calculate_U<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(density_grid_c_d,nx,ny,nz,U)
-    call cudaDeviceSynchronize()
+!     U=0.0
+!     KE = 0.0
+!     !print*, "got to just before potential launch"
+!     call calculate_U<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(density_grid_c_d,nx,ny,nz,U)
+!     call cudaDeviceSynchronize()
 
-    !print*, "Calculated potential"
-    call calculate_KE<<<(N-1)/256,256>>>(particles_d,N,m,smbh1_m,smbh2_m,KE)
-    call cudaDeviceSynchronize()
+!     !print*, "Calculated potential"
+!     call calculate_KE<<<(N-1)/256,256>>>(particles_d,N,m,smbh1_m,smbh2_m,KE)
+!     call cudaDeviceSynchronize()
 
-    !print*, "Calculated KE"
+!     !print*, "Calculated KE"
 
 
-    U = (2*pi*G/V)*U
-
-    
-    ! combine energies
-    E = U + KE
+!     U = (2*pi*G/V)*U
 
     
-end subroutine check_energy
+!     ! combine energies
+!     E = U + KE
 
-subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_grid_r_d_shifted,gravity_grid_c_d,nx,ny,nz,N)
+    
+! end subroutine check_energy
+
+subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_grid_r_d_shifted,gravity_grid_c_d,nx,ny,nz,N,plan)
     !###########################################################
     ! Instructions:
     !      Pass in a density grid to fill density_grid
@@ -723,6 +728,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     use precision
     use cufft_interface
     use device_ops 
+    use cudafor
     implicit none
     
     !########################
@@ -743,7 +749,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
 
     ! Cuda Variables for plan process
     !cufftHandle plan identifier and error
-    integer::status,plan
+    integer::status,plan,istat
     
     !########################
     !   Device Initializations
@@ -759,7 +765,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     ! Real and complex gravities on gpu
     complex, Dimension(:,:,:,:), allocatable,device:: gravity_grid_c_d
     real, Dimension(:,:,:,:), allocatable,device :: gravity_grid_r_d
-    real, Dimension(:,:,:,:), allocatable, device:: gravity_grid_r_d_shifted
+    real, Dimension(:,:,:,:), pointer, device,intent(inout):: gravity_grid_r_d_shifted
 
     integer :: blockDimX, blockDimY, blockDimZ
     integer :: gridDimX, gridDimY, gridDimZ
@@ -785,11 +791,11 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
 
     ! 3D R2C Fourier Transform execution
     call cufftExecR2C(plan,density_grid_r_d,density_grid_c_d)
-    call cudaDeviceSynchronize()
+    istat = cudaDeviceSynchronize()	
 
 
     call compute_gravities<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_c_d,density_grid_c_d,nx,ny,nz)
-    call cudaDeviceSynchronize()
+	istat = cudaDeviceSynchronize()	
 
     !print *, "compute_gravities finished"
     !#######################################
@@ -798,7 +804,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
 
     !Inverse 3D C2R Fourier Transform execution on the Gravity Cube
     call cufftExecC2R(plan,gravity_grid_c_d,gravity_grid_r_d)
-    call cudaDeviceSynchronize()
+	istat = cudaDeviceSynchronize()	
 
     ! !print*, "Density Grid"
     ! !print*, density_grid
@@ -818,7 +824,8 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     gravity_grid_r_d_shifted = 0.0
     call normalize3d_and_shift<<<[gridDimX, gridDimY, gridDimZ], [blockDimX, blockDimY, blockDimZ]>>>(gravity_grid_r_d,gravity_grid_r_d_shifted,nx,ny,nz,factor)
 
-    call cudaDeviceSynchronize()
+    istat = cudaDeviceSynchronize()	
+
     print*, "inside fft"
 
     
@@ -1234,12 +1241,13 @@ subroutine grid_to_particle(acceleration_grid,particles, N, nx, ny, nz, dx, dy, 
 
 program nbody_sim
     use precision
+    use cudafor
     use device_ops
     use cufft_interface
     use particle_kernels
     implicit none
-    integer, parameter::N = 1028
-    integer, parameter:: nx =16 , ny = 16, nz = 16
+    integer, parameter::N = 64
+    integer, parameter:: nx =4 , ny = 4, nz = 4
     real, Dimension(nx,ny,nz):: density_grid_test
     real, Dimension(3,nx,ny,nz):: gravity_grid_test
 
@@ -1253,7 +1261,7 @@ program nbody_sim
     integer :: blockDimX, blockDimY, blockDimZ
     integer :: gridDimX, gridDimY, gridDimZ
 
-    integer:: plan
+    integer:: plan,istat
 
 
     ! ############################################
@@ -1270,7 +1278,7 @@ program nbody_sim
 
     ! Real and complex gravities on gpu
     complex, Dimension(:,:,:,:), allocatable,device:: gravity_grid_c_d
-    real, Dimension(:,:,:,:), allocatable, device:: gravity_grid_r_d_shifted
+    real, Dimension(:,:,:,:), pointer, device:: gravity_grid_r_d_shifted
     real, Dimension(:,:,:,:), allocatable, device :: gravity_grid_r_d
     character(len=50) :: t_string
     
@@ -1320,7 +1328,7 @@ program nbody_sim
     !
     !##############################################
     
-    call cudaSetDevice(0)
+    istat = cudaSetDevice(0)
     nx_d = nx
     ny_d = ny
     nz_d = nz
@@ -1354,21 +1362,27 @@ program nbody_sim
     
     ! 3D R2C Fourier Transform plan setup
     call cufftPlan3d(plan, nx,ny,nz,CUFFT_R2C)
-    
+    istat = cudaDeviceSynchronize()	
+
     
 
     print*, 'Got past particle to grid'
     ! call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
     call particle_to_grid_cuda<<<(N+256-1)/256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
+    istat = cudaDeviceSynchronize()	
 
-    call cudaDeviceSynchronize()
     !call check_energy(density,nx,ny,nz,particles,N,smbh_m,E_0)
     !print*, 'Got past check energy - lol no'
-    !
+    
+
     do i=1, 10
         ! These 2 will go inside a do loop until end condition
         ! call particle_to_grid_cuda<<<256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
+        density_grid_r_d = 0.0
+        istat = cudaDeviceSynchronize()	
+
         call particle_to_grid_cuda<<<(N+256-1)/256,256>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
+        istat = cudaDeviceSynchronize()	
 
 
         !density_grid_test = density_grid_r_d
@@ -1386,71 +1400,29 @@ program nbody_sim
         ! still stays on gpu
         ! host/cpu - style function is just composing cuda kernel functions
 
-        particles = particles_d
-        print*, "Particles (only 10)"
-            do k = 1, N
-                print*, particles(:,k) 
-            enddo
-    
-        call fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_grid_r_d_shifted,gravity_grid_c_d, nx,ny,nz,N)
+        
+        call fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_grid_r_d_shifted,gravity_grid_c_d, nx,ny,nz,N,plan)
+        istat = cudaDeviceSynchronize()	
 
-        call cudaGetLastError(ierr)
-        if (ierr /= 0) print*, "CUDA Error:", ierr
-        print*, "got past fft_step"
-    
-        
-        print*, "Got past grid to particle"
-        ! do t = 1, nz
-        !     ! Write a header for each t block
-        !     write(t_string, '(A,I4)') "t = ", t
-        !     write(20, '(A)') trim(t_string)
-            
-        !     ! Write column headers (u values) for x-axis
-        !     write(20, '(A)', advance="no") "v/u,"
-        !     do u = 1, nx
-        !         if (u /= nx) then
-        !             write(20, '(I3,",")', advance="no") u
-        !         else
-        !             write(20, '(I3)') u
-        !         end if
-        !     end do
-            
-        !     ! Write each row for the y-axis (v values)
-        !     do v = 1, ny
-        !         write(20, '(I3,",")', advance="no") v  ! Start row with v value
-        !         do u = 1, nx
-        !             ! Write each value of the 3 components explicitly
-        !             write(20, '(3(F12.6,","))', advance="no") gravity_grid_test(1, u, v, t), &
-        !                                                     gravity_grid_test(2, u, v, t), &
-        !                                                     gravity_grid_test(3, u, v, t)
-        !         end do
-        !         write(20, *)  ! End of row
-        !     end do
-        
-        !     ! Write a blank line between t layers
-        !     write(20, *)
-        ! end do
-        
-        
-        ! ! Close the file
-        ! close(20)
-
-        gravity_grid_test = gravity_grid_r_d_shifted
-        print*,gravity_grid_test
+   
+        !print*, "Got past grid to particle"
+       
 
         !! here zac call your grid to particles kernel
         !! heres and example you can change dimensions and stuff
         
         
         call grid_to_particle_cuda<<<(N+256-1)/256,256>>>(gravity_grid_r_d_shifted,particles_d,N,nx, ny, nz,dx, dy, dz,smbh1_m,smbh2_m)
+        istat = cudaDeviceSynchronize()	
+
         ! Check for errors
         
-        print*, "after grid to p Particles (only 10)"
-        particles = particles_d
+        ! print*, "after grid to p Particles (only 10)"
+        ! particles = particles_d
 
-        do k = 1, N
-            print*, particles(:,k) 
-        end do
+        ! do k = 1, N
+        !     print*, particles(:,k) 
+        ! end do
 
       
       
@@ -1458,9 +1430,10 @@ program nbody_sim
         ! ill need to revisit thread count block size just going quick
         ! to get structure
         call integration_step<<<(N+256-1)/256,256>>>(particles_d,N,dt)
+        istat = cudaDeviceSynchronize()	
 
      
-        !print*, "Done step: ", i
+        print*, "Done step: ", i
 
         ! need a step to [pass back & write out
 
@@ -1469,6 +1442,12 @@ program nbody_sim
     ! Deallocations
 
     close(20)
+    particles = particles_d
+    print*, "Particles (only 10)"
+        do k = 1, N
+            print*, particles(:,k) 
+        enddo
+
     !deallocate density grids
     deallocate(density_grid_r_d,density_grid_c_d)
     
