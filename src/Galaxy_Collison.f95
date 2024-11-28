@@ -848,7 +848,7 @@ subroutine fft_step(density_grid_r_d,density_grid_c_d,gravity_grid_r_d,gravity_g
     ! Real and complex gravities on gpu
     complex, Dimension(:,:,:,:), allocatable,device:: gravity_grid_c_d
     real, Dimension(:,:,:,:), allocatable,device :: gravity_grid_r_d
-    real, Dimension(:,:,:,:), pointer, device,intent(inout):: gravity_grid_r_d_shifted
+    real, Dimension(:,:,:,:), allocatable, device,intent(inout):: gravity_grid_r_d_shifted
 
     integer :: blockDimX, blockDimY, blockDimZ
     integer :: gridDimX, gridDimY, gridDimZ
@@ -1342,7 +1342,7 @@ program nbody_sim
 
     ! Real and complex gravities on gpu
     complex, Dimension(:,:,:,:), allocatable,device:: gravity_grid_c_d
-    real, Dimension(:,:,:,:), pointer, device:: gravity_grid_r_d_shifted
+    real, Dimension(:,:,:,:), allocatable, device:: gravity_grid_r_d_shifted
     real, Dimension(:,:,:,:), allocatable, device :: gravity_grid_r_d
     character(len=50) :: t_string
     
