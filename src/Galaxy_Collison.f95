@@ -1318,7 +1318,7 @@ program nbody_sim
     integer:: checkpoint,steps,k,i,ierr,t,u,v,w
     real:: m,E_0,E,dx,dy,dz
     real, dimension(9,N)::particles
-    real, parameter::dt = 1e-6 !Needed to keep Energy change way below 10^-5
+    real, parameter::dt = 0.001 !Needed to keep Energy change way below 10^-5
     real,dimension(3)::p
     logical::animate
     integer:: particle_to_track = 50
@@ -1333,8 +1333,7 @@ program nbody_sim
     ! #######################################
     ! Particles on GPU
     real, Dimension(:,:),allocatable, device::particles_d
-    real,device::dt_d,nx_d,ny_d,nz_d,m_d,smbh1_m_d,smbh2_m_d
-    integer,device:: N_d
+    
 
     ! Real and complex density on gpu
     real, Dimension(:,:,:), allocatable, device :: density_grid_r_d
@@ -1367,9 +1366,6 @@ program nbody_sim
     ! allocation particles on device
     allocate(particles_d(9,N))
 
-    ! Open a file for writing gravity grid data
-    open(unit=20, file="gravity_grid_output.csv", status="replace", action="write")
-
     !##############################################
     !
     !   HOST(CPU) INITIALIZATIONS
@@ -1395,15 +1391,7 @@ program nbody_sim
     !##############################################
     
     istat = cudaSetDevice(0)
-    nx_d = nx
-    ny_d = ny
-    nz_d = nz
-    smbh1_m_d = smbh1_m
-    smbh2_m_d = smbh2_m
-    m_d = m
-    N_d = N
-  
-    dt_d = dt
+
 
 
     ! copy particles from host to device memory
@@ -1506,7 +1494,6 @@ program nbody_sim
 
     ! Deallocations
 
-    close(20)
     particles = particles_d
     print*, "Particles (only 10)"
         do k = 1, 10
