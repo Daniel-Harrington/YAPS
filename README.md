@@ -80,4 +80,4 @@ After successful compilation, run the executable to start the simulation:
 
 - **Number of particles (N)**: `100,000,000` (adjustable in the source code).
 - **Grid dimensions**: Default `nx=512`, `ny=512`, `nz=256`.
-- **Timestep (\( \Delta t \))**: Default `1e-6`.
+- **Timestep (\( \Delta t \))**: Default `0.1`.
