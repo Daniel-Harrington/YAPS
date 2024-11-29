@@ -321,12 +321,12 @@ attributes(global) subroutine particle_to_grid_cuda(density_grid_r_d, particles_
     
 
     ! predefined
-    x_min = -60.0
-    x_max = 60.0
-    y_min = -60.0
-    y_max = 60.0
-    z_min = -60.0
-    z_max = 60.0
+    x_min = -1000.0
+    x_max = 1000.0
+    y_min = -1000.0
+    y_max = 1000.0
+    z_min = -1000.0
+    z_max = 1000.0
     delta = (x_max - x_min) / ((nx/2)-1)
     delta_z = (z_max - z_min) / ((nz/2)-1)
 
@@ -475,12 +475,12 @@ attributes(global) subroutine grid_to_particle_cuda(acceleration_grid, particles
     real(kind(0.0)) :: x_min, y_min, z_min, x_max, y_max, z_max, delta, delta_z, x_i, y_j, z_k
 
     ! Predefined boundaries 
-    x_min = -60.0
-    x_max = 60.0
-    y_min = -60.0
-    y_max = 60.0
-    z_min = -60.0
-    z_max = 60.0
+    x_min = -1000.0
+    x_max = 1000.0
+    y_min = -1000.0
+    y_max = 1000.0
+    z_min = -1000.0
+    z_max = 1000.0
     epsilon = 1e-4
     delta = (x_max - x_min) / real(nx/2 - 1)
     delta_z = (z_max - z_min) / real(nz/2 - 1)
@@ -943,7 +943,7 @@ subroutine initialize_particles2(particles, N, Ra, disk_mass, smbh1_mass, smbh2_
             call random_number(z)
             z = (z - 0.5) * 2.0 * 0.08 * R_disk
 
-            v_c = sqrt(G * (smbh1_mass + compute_M_cl(r, rho_c, R_cl) + (disk_mass* r) / R_disk) / r)
+            v_c = sqrt(G * (smbh1_mass + compute_M_cl(r, rho_c, R_cl)  * r / R_disk) / r)
             if (v_c /= v_c) stop "NaN detected in v_c"
 
             call random_number(random_factor)
@@ -963,7 +963,7 @@ contains
     real function compute_M_cl(r, rho_c, R_cl)
         implicit none
         real, intent(in) :: r, rho_c, R_cl
-        real :: term1, term2
+        real :: term1, term2    
 
         term1 = 0.5 * log(1.0 + (r / max(R_cl, 1e-6))**2)
         term2 = (r / max(R_cl, 1e-6))**2 / (1.0 + (r / max(R_cl, 1e-6))**2)
@@ -1291,7 +1291,7 @@ program nbody_sim
     use cufft_interface
     use particle_kernels
     implicit none
-    integer, parameter::N = 1000
+    integer, parameter::N = 100000
     integer, parameter:: nx =128 , ny = 128, nz = 64  
     real, Dimension(nx,ny,nz):: density_grid_test
     real, Dimension(3,nx,ny,nz):: gravity_grid_test
@@ -1303,7 +1303,7 @@ program nbody_sim
     integer:: checkpoint,steps,k,i,ierr,t,u,v,w
     real:: m,E_0,E,dx,dy,dz
     real, dimension(9,N)::particles
-    real, parameter::dt = 0.001 !Needed to keep Energy change way below 10^-5
+    real, parameter::dt = 0.1 !Needed to keep Energy change way below 10^-5
     real,dimension(3)::p
     logical::animate
     integer:: particle_to_track = 50
@@ -1426,7 +1426,7 @@ program nbody_sim
 
     ! print*, "Done step: ", 0
     ! print*, "Relative Energy Change: ",(E-E_0)/E_0
-    do i=1, 100000
+    do i=1, 1000
         
         ! These 2 will go inside a do loop until end condition
         ! call particle_to_grid_cuda<<<blockDim,blockDim>>>(density_grid_r_d, particles_d, N, nx, ny, nz, dx, dy, dz,smbh1_m,smbh2_m)
@@ -1486,12 +1486,13 @@ program nbody_sim
      
       
         ! need a step to [pass back & write out
-        if (mod(i,5000)==0) then
+        if (mod(i,50)==0) then
             particles = particles_d
             do k = 1, N
                 write(10,*) particles(1,k),particles(2,k),particles(3,k)
             end do
             call check_energy(density_grid_r_d,density_grid_c_d,nx,ny,nz,particles_d,N,m,smbh1_m,smbh2_m,E,plan)
+            istat = cudaDeviceSynchronize()	
 
             print*, "Done step: ", i
             print*, "Relative Energy Change: ",(E-E_0)/E_0
