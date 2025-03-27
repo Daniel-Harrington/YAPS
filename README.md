@@ -6,7 +6,7 @@
 
 A high-performance astrophysics simulation modeling black hole migration resulting from the merger of a large host galaxy with a smaller galaxy. The simulation uses **CUDA acceleration** and **Fourier transforms** to compute gravitational interactions between 100 million particles, including two supermassive black holes (SMBHs). The project aims to study the **final parsec problem** in galaxy mergers.
 
-![image](https://github.com/user-attachments/assets/3a63f4ab-933a-400b-90b7-d1e36aa5384c)
+![image](https://github.com/user-attachments/assets/f59f08d6-8721-4ba9-a918-a0891dd2eb90)
 
 ---
 
